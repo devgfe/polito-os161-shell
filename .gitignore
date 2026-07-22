@@ -1,6 +1,12 @@
+# Local tools
 tools/
+
+# Runtime files
 root/*
 !root/sys161.conf
+!root/.gdbinit
+
+# Build artifacts
 src/build/
 src/defs.mk
 src/kern/compile/*/

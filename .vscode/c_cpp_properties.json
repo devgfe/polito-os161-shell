@@ -5,6 +5,8 @@
             "includePath": [
                 "${env:HOME}/os161/src/kern/include",
                 "${env:HOME}/os161/src/kern/lib",
+                "${env:HOME}/os161/src/kern/compile/SHELL",
+                "${env:HOME}/os161/src/kern/compile/SHELL/includelinks",
                 "${env:HOME}/os161/src/kern/compile/DUMBVM",
                 "${env:HOME}/os161/src/kern/compile/DUMBVM/includelinks",
                 "${env:HOME}/os161/src/kern/dev/generic",
