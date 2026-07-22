@@ -1,0 +1,9 @@
+tools/
+root/*
+!root/sys161.conf
+src/build/
+src/defs.mk
+src/kern/compile/*/
+*.o
+*.d
+*.a
