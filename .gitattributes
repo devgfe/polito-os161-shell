@@ -1,0 +1,6 @@
+# Normalize all text files to LF on checkout
+* text=auto eol=lf
+
+# Binary files
+*.img binary
+*.pmem binary
