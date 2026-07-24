@@ -32,6 +32,8 @@
 
 
 #include <cdefs.h> /* for __DEAD */
+#include "opt-shell.h"
+
 struct trapframe; /* from <machine/trapframe.h> */
 
 /*
@@ -58,5 +60,9 @@ __DEAD void enter_new_process(int argc, userptr_t argv, userptr_t env,
 
 int sys_reboot(int code);
 int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
+
+#if OPT_SHELL
+int sys_execv(const_userptr_t program, const_userptr_t args);
+#endif
 
 #endif /* _SYSCALL_H_ */

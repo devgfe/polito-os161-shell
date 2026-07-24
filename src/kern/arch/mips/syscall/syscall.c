@@ -35,6 +35,7 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
+#include "opt-shell.h"
 
 
 /*
@@ -110,6 +111,12 @@ syscall(struct trapframe *tf)
 		break;
 
 	    /* Add stuff here */
+#if OPT_SHELL
+		case SYS_execv:
+		err = sys_execv((const_userptr_t)tf->tf_a0,
+			(const_userptr_t)tf->tf_a1);
+		break;
+#endif
 
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
