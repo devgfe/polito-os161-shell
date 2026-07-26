@@ -48,6 +48,10 @@
 #include <current.h>
 #include <addrspace.h>
 #include <vnode.h>
+#include "opt-shell.h"
+#if OPT_SHELL
+#include <filetable.h>
+#endif
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -82,6 +86,10 @@ proc_create(const char *name)
 	/* VFS fields */
 	proc->p_cwd = NULL;
 
+#if OPT_SHELL
+	proc->p_fdtable = NULL;
+#endif
+
 	return proc;
 }
 
@@ -110,6 +118,13 @@ proc_destroy(struct proc *proc)
 	 * reference to this structure. (Otherwise it would be
 	 * incorrect to destroy it.)
 	 */
+
+#if OPT_SHELL
+	if (proc->p_fdtable != NULL) {
+		fdtable_destroy(proc->p_fdtable);
+		proc->p_fdtable = NULL;
+	}
+#endif
 
 	/* VFS fields */
 	if (proc->p_cwd) {
@@ -217,6 +232,14 @@ proc_create_runprogram(const char *name)
 		newproc->p_cwd = curproc->p_cwd;
 	}
 	spinlock_release(&curproc->p_lock);
+
+#if OPT_SHELL
+	newproc->p_fdtable = fdtable_create_standard();
+	if (newproc->p_fdtable == NULL) {
+		proc_destroy(newproc);
+		return NULL;
+	}
+#endif
 
 	return newproc;
 }

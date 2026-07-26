@@ -37,10 +37,14 @@
  */
 
 #include <spinlock.h>
+#include "opt-shell.h"
 
 struct addrspace;
 struct thread;
 struct vnode;
+#if OPT_SHELL
+struct fd_table;
+#endif
 
 /*
  * Process structure.
@@ -69,6 +73,10 @@ struct proc {
 
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
+
+#if OPT_SHELL
+	struct fd_table *p_fdtable;	/* process file descriptor table */
+#endif
 
 	/* add more material here as needed */
 };
