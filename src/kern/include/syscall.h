@@ -62,7 +62,12 @@ int sys_reboot(int code);
 int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
 
 #if OPT_SHELL
+
+/* Process system calls. */
 int sys_execv(const_userptr_t program, const_userptr_t args);
+
+/* File system calls. */
+
 #endif
 
 #endif /* _SYSCALL_H_ */

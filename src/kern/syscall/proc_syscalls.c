@@ -123,9 +123,9 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_args)
 	}
 
 	stackptr_str = stackptr - argsbytes;
-	stackptr_str_padding = stackptr_str & ~(vaddr_t)7;
+	stackptr_str_padding = stackptr_str & ~(vaddr_t)3; // 3 (dec) = 11 (bin) --> 2^2 * 1 byte --> 4 byte
 	stackptr_argv = stackptr_str_padding - (argc + 1) * sizeof(vaddr_t);
-	stackptr_argv_padding = stackptr_argv & ~(vaddr_t)7;
+	stackptr_argv_padding = stackptr_argv & ~(vaddr_t)7; // 7 (dec) = 111 (bin) --> 2^3 * 1 byte --> 8 byte
 
 	argsoffset = 0;
 	for (int argnum = 0; argnum < argc; argnum++) {

@@ -110,11 +110,12 @@ syscall(struct trapframe *tf)
 				 (userptr_t)tf->tf_a1);
 		break;
 
-	    /* Add stuff here */
 #if OPT_SHELL
 		case SYS_execv:
-		err = sys_execv((const_userptr_t)tf->tf_a0,
-			(const_userptr_t)tf->tf_a1);
+		err = sys_execv(
+			(const_userptr_t)tf->tf_a0,
+			(const_userptr_t)tf->tf_a1
+		);
 		break;
 #endif
 
