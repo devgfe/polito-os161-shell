@@ -396,6 +396,7 @@ defoption synch
 
 optfile shell syscall/proc_syscalls.c
 optfile shell syscall/file_syscalls.c
+optfile shell syscall/filetable.c
 
 ########################################
 #                                      #
