@@ -18,14 +18,15 @@
 #define ARGTEST_PATH "/testbin/argtest"
 
 struct exec_case {
-	char *description;
-	char *program;
+	const char *description;
+	const char *program;
 	char **args;
 	int expected_exit_status;
 };
 
+static
 int
-expect_exec(struct exec_case *test_case)
+expect_exec(const struct exec_case *test_case)
 {
 	pid_t pid;
 	pid_t waited_pid;

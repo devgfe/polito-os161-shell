@@ -14,19 +14,28 @@
 
 static
 int
-write_exactly(int filehandle, const char *buffer, size_t length)
+write_failed(int filehandle, const char *buffer, size_t length)
 {
 	ssize_t result;
 
 	result = write(filehandle, buffer, length);
-	return result == (ssize_t)length ? 0 : -1;
+	return result != (ssize_t)length;
+}
+
+static
+int
+read_failed(int filehandle, char *buffer, size_t length)
+{
+	ssize_t result;
+
+	result = read(filehandle, buffer, length);
+	return result != (ssize_t)length;
 }
 
 int
 main(void)
 {
 	char character;
-	ssize_t result;
 
 	char stdout_message[] = "stdiodtest: write to stdout (fd 1) succeeded\n";
 	char stderr_message[] = "stdiodtest: write to stderr (fd 2) succeeded\n";
@@ -34,26 +43,25 @@ main(void)
 	char echo_prefix[] = "\nstdiodtest: stdin returned: ";
 	char success_message[] = "\nstdiodtest: PASS\n";
 
-	if (write_exactly(STDOUT_FILENO, stdout_message, sizeof(stdout_message) - 1)) { // -1 --> '\0'
+	if (write_failed(STDOUT_FILENO, stdout_message, sizeof(stdout_message) - 1)) { // -1 --> '\0'
 		return STDOUT_FAILURE;
 	}
 
-	if (write_exactly(STDERR_FILENO, stderr_message, sizeof(stderr_message) - 1)) {
+	if (write_failed(STDERR_FILENO, stderr_message, sizeof(stderr_message) - 1)) {
 		return STDERR_FAILURE;
 	}
 
-	if (write_exactly(STDOUT_FILENO, input_prompt, sizeof(input_prompt) - 1)) {
+	if (write_failed(STDOUT_FILENO, input_prompt, sizeof(input_prompt) - 1)) {
 		return STDOUT_FAILURE;
 	}
 
-	result = read(STDIN_FILENO, &character, 1);
-	if (result != 1) {
+	if (read_failed(STDIN_FILENO, &character, 1)) {
 		return STDIN_FAILURE;
 	}
 
-	if (write_exactly(STDOUT_FILENO, echo_prefix, sizeof(echo_prefix) - 1) ||
-	    write_exactly(STDOUT_FILENO, &character, 1) ||
-	    write_exactly(STDOUT_FILENO, success_message, sizeof(success_message) - 1)) {
+	if (write_failed(STDOUT_FILENO, echo_prefix, sizeof(echo_prefix) - 1) ||
+	    write_failed(STDOUT_FILENO, &character, 1) ||
+	    write_failed(STDOUT_FILENO, success_message, sizeof(success_message) - 1)) {
 		return ECHO_FAILURE;
 	}
 
