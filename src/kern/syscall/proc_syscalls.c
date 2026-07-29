@@ -11,7 +11,7 @@
 
 /* Replace the current process image. */
 int 
-sys_execv(const_userptr_t user_program, const_userptr_t user_args) 
+sys_execv(const_userptr_t user_program, const_userptr_t user_argv) 
 {
 	struct vnode *v;
 	struct addrspace *newas;
@@ -20,10 +20,10 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_args)
 	char *kargs;
 	vaddr_t entrypoint;
 	vaddr_t stackptr;
-	vaddr_t stackptr_argv;
-	vaddr_t stackptr_str;
-	vaddr_t stackptr_argv_padding;
-	vaddr_t stackptr_str_padding;
+	vaddr_t argv_vector_base;
+	vaddr_t argv_strings_base;
+	vaddr_t argv_vector_base_aligned;
+	vaddr_t argv_strings_base_aligned;
 	vaddr_t argaddr;
 	size_t argsbytes;
 	size_t argsoffset;
@@ -61,7 +61,7 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_args)
 		userptr_t user_arg;
 
 		result = copyin(
-			(const_userptr_t)((vaddr_t)user_args + argc * sizeof(userptr_t)),
+			(const_userptr_t)((vaddr_t)user_argv + argc * sizeof(userptr_t)),
 			&user_arg,
 			sizeof(user_arg));
 		if (result) {
@@ -122,19 +122,19 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_args)
 		goto fail;
 	}
 
-	stackptr_str = stackptr - argsbytes;
-	stackptr_str_padding = stackptr_str & ~(vaddr_t)3; // 3 (dec) = 11 (bin) --> 2^2 * 1 byte --> 4 byte
-	stackptr_argv = stackptr_str_padding - (argc + 1) * sizeof(vaddr_t);
-	stackptr_argv_padding = stackptr_argv & ~(vaddr_t)7; // 7 (dec) = 111 (bin) --> 2^3 * 1 byte --> 8 byte
+	argv_strings_base = stackptr - argsbytes;
+	argv_strings_base_aligned = argv_strings_base & ~(vaddr_t)3; // 3 (dec) = 11 (bin) --> 2^2 * 1 byte --> 4 byte
+	argv_vector_base = argv_strings_base_aligned - (argc + 1) * sizeof(vaddr_t);
+	argv_vector_base_aligned = argv_vector_base & ~(vaddr_t)7; // 7 (dec) = 111 (bin) --> 2^3 * 1 byte --> 8 byte
 
 	argsoffset = 0;
 	for (int argnum = 0; argnum < argc; argnum++) {
 		size_t arglen = strlen(kargs + argsoffset) + 1; // +1 --> '\0'
 
-		argaddr = stackptr_str + argsoffset;
+		argaddr = argv_strings_base + argsoffset;
 		result = copyout(
 			&argaddr,
-			(userptr_t)(stackptr_argv + argnum * sizeof(vaddr_t)),
+			(userptr_t)(argv_vector_base + argnum * sizeof(vaddr_t)),
 			sizeof(argaddr)
 		);
 		if (result) {
@@ -143,7 +143,7 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_args)
 
 		result = copyoutstr(
 			kargs + argsoffset,
-			(userptr_t)(stackptr_str + argsoffset), 
+			(userptr_t)(argv_strings_base + argsoffset), 
 			arglen, 
 			NULL
 		);
@@ -157,7 +157,7 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_args)
 	argaddr = 0; // NULL
 	result = copyout(
 		&argaddr,
-		(userptr_t)(stackptr_argv + argc * sizeof(vaddr_t)),
+		(userptr_t)(argv_vector_base + argc * sizeof(vaddr_t)),
 		sizeof(argaddr)
 	);
 	if (result) {
@@ -169,7 +169,7 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_args)
 	}
 	kfree(kargs);
 	kfree(kprogram);
-	enter_new_process(argc, (userptr_t)stackptr_argv, NULL, stackptr_argv_padding, entrypoint);
+	enter_new_process(argc, (userptr_t)argv_vector_base, NULL, argv_vector_base_aligned, entrypoint);
 
 	panic("enter_new_process returned\n");
 	return EINVAL;
