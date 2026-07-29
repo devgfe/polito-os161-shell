@@ -70,11 +70,11 @@ The new address space must be temporarily installed because `load_elf` loads the
 
 Each newly started user process is initialized with the following standard descriptors connected to the console device `con:`:
 
-| FD | Meaning | Access mode |
+| FD | Meaning | Macro |
 | --- | --- | --- |
-| `0` | standard input | read |
-| `1` | standard output | write |
-| `2` | standard error | write |
+| `0` | standard input (stdin) | `STDIN_FILENO` |
+| `1` | standard output (stdout) | `STDOUT_FILENO` |
+| `2` | standard error (stderr) | `STDERR_FILENO` |
 
 The current branch adds `p_fdtable` to `struct proc`. `proc_create` initializes it to `NULL`; `proc_create_runprogram` calls `fdtable_create_standard()` after creating the process; and `proc_destroy` calls `fdtable_destroy()` before releasing the process. If standard-table creation fails, `proc_create_runprogram` destroys the partially created process and reports failure.
 
