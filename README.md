@@ -86,11 +86,51 @@ The following tests validate the implemented behaviour and relevant error paths.
 
 ### `execvtest`
 
-`execvtest` validates `execv` in isolated child processes. For each case, the child calls `execv`; if it returns, the child exits with the observed errno and the parent compares that status after `waitpid`. The successful case executes `/testbin/argtest` with multiple arguments, which checks `argc`, every `argv[i]`, and the terminating null pointer. Error cases cover unknown devices (`ENODEV`), invalid path components (`ENOTDIR`), missing targets (`ENOENT`), directories (`EISDIR`), non-ELF files (`ENOEXEC`), oversized argument blocks (`E2BIG`), invalid user pointers (`EFAULT`), and insufficient memory (`ENOMEM`).
+`execvtest` validates `execv` in isolated child processes. For each case, the child calls `execv`; if it returns, the child exits with the observed errno and the parent compares that status after `waitpid`. The successful case executes `/testbin/argtest` with multiple arguments, which checks `argc`, every `argv[i]`, and the terminating null pointer. Error cases cover unknown devices (`ENODEV`), invalid path components (`ENOTDIR`), missing targets (`ENOENT`), directories (`EISDIR`), non-ELF files (`ENOEXEC`), oversized argument blocks (`E2BIG`), insufficient memory for a huge program (`ENOMEM`), a NULL program pointer (`EFAULT`), an invalid program pointer (`EFAULT`), a NULL `argv` pointer (`EFAULT`), an invalid `argv` pointer (`EFAULT`), and an invalid argument string pointer (`EFAULT`).
 
 ### `stdiodtest`
 
-`stdiodtest` verifies that a newly started program can use its standard descriptors. It writes a message to FD `1`, writes a separate message to FD `2`, reads one character from FD `0`, echoes that character to FD `1`, and returns a distinct failure status for each stage. It depends on the `read` and `write` syscalls.
+`stdiodtest` verifies that a newly started program can use its standard descriptors. It writes a message to FD `1`, writes a separate message to FD `2`, writes a prompt to FD `1`, reads one character from FD `0`, echoes that character to FD `1`, and writes a final success message. Each operation is reported independently. It depends on the `read` and `write` syscalls.
+
+### `opentest`
+
+`opentest` creates a read/write file at `/testbin/opentest.tmp` with `O_RDWR | O_CREAT | O_TRUNC`. Error cases cover unknown devices (`ENODEV`), regular files in the path (`ENOTDIR`), missing files (`ENOENT`), `O_CREAT | O_EXCL` on an existing file (`EEXIST`), directories opened for writing (`EISDIR`), invalid flags (`EINVAL`), a NULL pathname (`EFAULT`), and an invalid pathname pointer (`EFAULT`).
+
+### `closetest`
+
+`closetest` opens `/testbin/closetest.tmp` with `O_RDONLY | O_CREAT`, closes the descriptor successfully, and verifies that closing the same descriptor again returns `EBADF`. Also checks `close(-1)` (`EBADF`).
+
+### `readtest`
+
+`readtest` prepares `/testbin/readtest.tmp` with known content, reads it back, and checks that `read` returns the full requested byte count with matching data, and that a subsequent read returns zero. Error cases cover invalid descriptors (`EBADF`), write-only descriptors (`EBADF`), and invalid buffer pointers (`EFAULT`).
+
+### `writetest`
+
+`writetest` writes known content to `/testbin/writetest.tmp`, reopens the file for reading, and verifies the stored data matches. Error cases cover invalid descriptors (`EBADF`), read-only descriptors (`EBADF`), and invalid buffer pointers (`EFAULT`).
+
+### `lseektest`
+
+`lseektest` exercises all three whence modes on a file containing the six-byte string `"abcdef"`. `SEEK_SET` seeks to offset `2` and reads `'c'`; `SEEK_CUR` advances by `1` from the current position and reads `'e'`; `SEEK_END` jumps past the last byte and confirms that a subsequent read returns zero. Error cases cover invalid descriptors (`EBADF`), negative resulting offsets (`EINVAL`), invalid whence values (`EINVAL`), and non-seekable devices (`null:`, `ESPIPE`).
+
+### `dup2test`
+
+`dup2test` duplicates a descriptor opened on `/testbin/dup2test.tmp` and verifies that `dup2` returns the target descriptor and that the original and the duplicate share the seek offset. Tests that `dup2` onto itself preserves the descriptor. Error cases cover invalid source descriptors (`EBADF`), invalid target descriptors (`EBADF`), and impossible target descriptors (`EBADF`).
+
+### `chdirtest`
+
+`chdirtest` changes to `/testbin` and confirms the result by opening `argtest` with a relative path, then changes back to `/`. Error cases cover unknown devices (`ENODEV`), regular files in the path (`ENOTDIR`), missing paths (`ENOENT`), a NULL pathname (`EFAULT`), and an invalid pathname pointer (`EFAULT`).
+
+### `getcwdtest`
+
+`getcwdtest` changes to `/testbin`, calls `__getcwd` with a sufficiently sized buffer, and verifies that the returned length and content match the expected directory. Error cases cover a NULL buffer (`EFAULT`) and an invalid buffer pointer (`EFAULT`).
+
+### `getpidtest`
+
+`getpidtest` calls `getpid` twice and checks that the returned value is positive and stable across successive calls within the same process.
+
+### `waitpidtest`
+
+`waitpidtest` forks a child that calls `_exit` with a known status, confirms that `waitpid` returns the child PID and correctly reports the exit status. Verifies that reaping the same child again returns `ESRCH`, that a NULL status pointer is accepted, that an invalid status pointer returns `EFAULT`, that unsupported `options` flags return `EINVAL`, and that calling `waitpid` on the calling process's own PID returns `ECHILD`.
 
 ## References
 
