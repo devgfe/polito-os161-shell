@@ -1,7 +1,7 @@
 /*
  * execvtest.c
  *
- * Tests the error results required by the OS/161 execv manual page.
+ * Tests successful execv calls and deterministic errors from the manual page.
  */
 
 #include <sys/types.h>
@@ -12,21 +12,17 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "../testreport.h"
+
 #define BAD_USER_POINTER ((void *)0x40000000)
 #define CHILD_MISSING_ERRNO 100
 #define CHILD_UNEXPECTED_RETURN 101
 #define ARGTEST_PATH "/testbin/argtest"
 
-struct exec_case {
-	const char *description;
-	const char *program;
-	char **args;
-	int expected_exit_status;
-};
-
 static
-int
-expect_exec(const struct exec_case *test_case)
+void
+expect_exec(const char *description, const char *program, char **args,
+            int expected_exit_status)
 {
 	pid_t pid;
 	pid_t waited_pid;
@@ -36,62 +32,53 @@ expect_exec(const struct exec_case *test_case)
 
 	pid = fork();
 	if (pid < 0) {
-		printf("FAIL: %s (fork failed, errno %d)\n",
-		       test_case->description, errno);
-		return 1;
+		fail_errno("fork for execv test", 0, errno);
+		return;
 	}
 
 	if (pid == 0) { 
 		/* Child */
 		errno = 0;
-		result = execv(test_case->program, test_case->args);
+		result = execv(program, args);
 		if (result != -1) {
 			_exit(CHILD_UNEXPECTED_RETURN);
 		}
-		if (errno == 0) {
+		else if (errno == 0) {
 			_exit(CHILD_MISSING_ERRNO);
 		}
-		_exit(errno);
+		else {
+			_exit(errno);
+		}
 	}
 
 	/* Parent */
 	waited_pid = waitpid(pid, &status, 0);
 	if (waited_pid != pid) {
-		printf("FAIL: %s (waitpid failed, errno %d)\n",
-		    test_case->description, errno);
-		return 1;
+		fail_errno("waitpid for execv test", 0, errno);
+		return;
 	}
 
 	if (WIFEXITED(status)) {
 		child_status = WEXITSTATUS(status);
-		if (child_status == test_case->expected_exit_status) {
-			printf("PASS: %s\n", test_case->description);
-			return 0;
+		if (child_status == expected_exit_status) {
+			pass(description);
 		} 
 		else if (child_status == CHILD_MISSING_ERRNO) {
-			printf("FAIL: %s (execv failed without setting errno)\n",
-		       	test_case->description);
+			fail("execv failed without setting errno");
 		} 
 		else if (child_status == CHILD_UNEXPECTED_RETURN) {
-			printf("FAIL: %s (execv returned a value other than -1)\n",
-		       	test_case->description);
+			fail("execv returned a value other than -1");
 		} 
 		else {
-			printf("FAIL: %s (expected status %d, got %d)\n",
-	       		test_case->description, test_case->expected_exit_status,
-	       		child_status);
+			fail("execv returned an unexpected exit status");
 		}
 	}
 	else if (WIFSIGNALED(status)) {
-		printf("FAIL: %s (child received signal %d)\n", test_case->description,
-		       WTERMSIG(status));
+		fail("execv child received a signal");
 	}
 	else {
-		printf("FAIL: %s (unexpected child status %d)\n", test_case->description,
-		       status);
+		fail("execv child returned an unexpected status");
 	}
-
-	return 1;
 }
 
 int
@@ -117,27 +104,20 @@ main(void)
 	oversized_args[0] = (char *)"argtest";
 	oversized_args[1] = oversized_argument;
 	oversized_args[2] = NULL;
-	
-	struct exec_case test_cases[] = {
-		{ "successful execv ran argtest", ARGTEST_PATH, valid_args, 0 },
-		{ "ENODEV: unknown device prefix", "no-such-device:/bin/true", valid_args, ENODEV },
-		{ "ENOTDIR: regular file in path", "/bin/true/not-a-program", valid_args, ENOTDIR },
-		{ "ENOENT: missing program", "/testbin/execvtest-no-such-program", valid_args, ENOENT },
-		{ "EISDIR: program is a directory", "/testbin", valid_args, EISDIR },
-		{ "ENOEXEC: non-ELF program", "/sys161.conf", valid_args, ENOEXEC },
-		{ "E2BIG: argument exceeds ARG_MAX", ARGTEST_PATH, oversized_args, E2BIG },
-		{ "EFAULT: NULL program pointer", NULL, valid_args, EFAULT },
-		{ "EFAULT: invalid program pointer", (const char *)BAD_USER_POINTER, valid_args, EFAULT },
-		{ "EFAULT: NULL argv pointer", ARGTEST_PATH, NULL, EFAULT },
-		{ "EFAULT: invalid argv pointer", ARGTEST_PATH, (char **)BAD_USER_POINTER, EFAULT },
-		{ "EFAULT: invalid argument string", ARGTEST_PATH, bad_string_args, EFAULT },
-		{ "ENOMEM: insufficient RAM for huge program", "/testbin/huge", valid_args, ENOMEM }
-	};
 
-	for (int i = 0; i < sizeof(test_cases) / sizeof(struct exec_case); i++) {
-		if (expect_exec(&test_cases[i]))
-			return 1;
-	}
+	expect_exec("successful execv ran argtest", ARGTEST_PATH, valid_args, 0);
+	expect_exec("ENODEV: unknown device prefix", "no-such-device:/bin/true", valid_args, ENODEV);
+	expect_exec("ENOTDIR: regular file in path", "/bin/true/not-a-program", valid_args, ENOTDIR);
+	expect_exec("ENOENT: missing program", "/testbin/execvtest-no-such-program", valid_args, ENOENT);
+	expect_exec("EISDIR: program is a directory", "/testbin", valid_args, EISDIR);
+	expect_exec("ENOEXEC: non-ELF program", "/sys161.conf", valid_args, ENOEXEC);
+	expect_exec("ENOMEM: insufficient RAM for huge program", "/testbin/huge", valid_args, ENOMEM);
+	expect_exec("E2BIG: argument exceeds ARG_MAX", ARGTEST_PATH, oversized_args, E2BIG);
+	expect_exec("EFAULT: NULL program pointer", NULL, valid_args, EFAULT);
+	expect_exec("EFAULT: invalid program pointer", (const char *)BAD_USER_POINTER, valid_args, EFAULT);
+	expect_exec("EFAULT: NULL argv pointer", ARGTEST_PATH, NULL, EFAULT);
+	expect_exec("EFAULT: invalid argv pointer", ARGTEST_PATH, (char **)BAD_USER_POINTER, EFAULT);
+	expect_exec("EFAULT: invalid argument string", ARGTEST_PATH, bad_string_args, EFAULT);
 
-	return 0;
+	return finish_test("execvtest");
 }

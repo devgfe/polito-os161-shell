@@ -5,13 +5,13 @@
 TOP=../..
 .include "$(TOP)/mk/os161.config.mk"
 
-SUBDIRS=add argtest badcall bigexec bigfile bigfork bigseek bloat conman \
-	crash ctest dirconc dirseek dirtest execvtest f_test factorial farm faulter \
-	filetest forkbomb forktest frack hash hog huge \
-	malloctest matmult multiexec palin parallelvm poisondisk psort \
+SUBDIRS=add argtest badcall bigexec bigfile bigfork bigseek bloat chdirtest closetest conman \
+	crash ctest dirconc dirseek dirtest dup2test execvtest f_test factorial farm faulter \
+	filetest forkbomb forktest frack getcwdtest getpidtest hash hog huge lseektest \
+	malloctest matmult multiexec opentest palin parallelvm poisondisk psort readtest \
 	randcall redirect rmdirtest rmtest \
 	sbrktest schedpong sort sparsefile stdiodtest tail tictac triplehuge \
-	triplemat triplesort usemtest zero
+	triplemat triplesort usemtest waitpidtest writetest zero
 
 # But not:
 #    userthreads    (no support in kernel API in base system)

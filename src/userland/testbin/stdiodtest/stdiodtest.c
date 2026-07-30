@@ -5,12 +5,10 @@
  */
 
 #include <sys/types.h>
+#include <errno.h>
 #include <unistd.h>
 
-#define STDOUT_FAILURE 1
-#define STDERR_FAILURE 2
-#define STDIN_FAILURE 3
-#define ECHO_FAILURE 4
+#include "../testreport.h"
 
 static
 int
@@ -43,27 +41,44 @@ main(void)
 	char echo_prefix[] = "\nstdiodtest: stdin returned: ";
 	char success_message[] = "\nstdiodtest: PASS\n";
 
-	if (write_failed(STDOUT_FILENO, stdout_message, sizeof(stdout_message) - 1)) { // -1 --> '\0'
-		return STDOUT_FAILURE;
+	character = '\0';
+
+	if (write_failed(STDOUT_FILENO, stdout_message, sizeof(stdout_message) - 1)) {
+		fail_errno("write to stdout (fd 1)", 0, errno);
+	}
+	else {
+		pass("write to stdout (fd 1)");
 	}
 
 	if (write_failed(STDERR_FILENO, stderr_message, sizeof(stderr_message) - 1)) {
-		return STDERR_FAILURE;
+		fail_errno("write to stderr (fd 2)", 0, errno);
+	}
+	else {
+		pass("write to stderr (fd 2)");
 	}
 
 	if (write_failed(STDOUT_FILENO, input_prompt, sizeof(input_prompt) - 1)) {
-		return STDOUT_FAILURE;
+		fail_errno("write stdin prompt to stdout", 0, errno);
+	}
+	else {
+		pass("write stdin prompt to stdout");
 	}
 
 	if (read_failed(STDIN_FILENO, &character, 1)) {
-		return STDIN_FAILURE;
+		fail_errno("read from stdin (fd 0)", 0, errno);
+	}
+	else {
+		pass("read from stdin (fd 0)");
 	}
 
 	if (write_failed(STDOUT_FILENO, echo_prefix, sizeof(echo_prefix) - 1) ||
 	    write_failed(STDOUT_FILENO, &character, 1) ||
 	    write_failed(STDOUT_FILENO, success_message, sizeof(success_message) - 1)) {
-		return ECHO_FAILURE;
+		fail_errno("write echo to stdout", 0, errno);
+	}
+	else {
+		pass("write echo to stdout");
 	}
 
-	return 0;
+	return finish_test("stdiodtest");
 }
