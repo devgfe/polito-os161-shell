@@ -6,6 +6,7 @@
 #if OPT_SHELL
 struct fd_table;
 
+void filetable_bootstrap(void);
 struct fd_table *fdtable_create_standard(void);
 void fdtable_destroy(struct fd_table *table);
 #endif
