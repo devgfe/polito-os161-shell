@@ -87,45 +87,13 @@ system_table_alloc(struct vnode *vn, int flags)
 	return of;
 }
 
-/* apre path e lo piazza sull'fd indicato; usata per stdin/stdout/stderr, e in futuro da sys_open */
-static int
-fdtable_open_std(struct fd_table *ft, const char *path, int flags, int fd)
-{
-	struct vnode *vn;
-	struct open_file *of;
-	char *kpath;
-	int result;
-
-	KASSERT(fd >= 0 && fd < OPEN_MAX);
-	KASSERT(ft->ft_entries[fd] == NULL);
-
-	kpath = kstrdup(path);
-	if (kpath == NULL) {
-		return ENOMEM;
-	}
-
-	result = vfs_open(kpath, flags, 0, &vn);
-	kfree(kpath);
-	if (result) {
-		return result;
-	}
-
-	of = system_table_alloc(vn, flags);
-	if (of == NULL) {
-		vfs_close(vn);
-		return ENFILE;
-	}
-
-	ft->ft_entries[fd] = of;
-	return 0;
-}
-
 struct fd_table *
 fdtable_create_standard(void)
 {
 	struct fd_table *ft;
 	int result;
 	int i;
+    int fd;
 
 	ft = kmalloc(sizeof(*ft));
 	if (ft == NULL) {
@@ -143,15 +111,15 @@ fdtable_create_standard(void)
 	}
 	ft->ft_cwd = NULL;
 
-	result = fdtable_open_std(ft, "con:", O_RDONLY, STDIN_FILENO);
+	result = fdtable_open(ft, "con:", O_RDONLY, 0, &fd);
 	if (result) {
 		goto fail;
 	}
-	result = fdtable_open_std(ft, "con:", O_WRONLY, STDOUT_FILENO);
+	result = fdtable_open(ft, "con:", O_WRONLY, 0, &fd);
 	if (result) {
 		goto fail;
 	}
-	result = fdtable_open_std(ft, "con:", O_WRONLY, STDERR_FILENO);
+	result = fdtable_open(ft, "con:", O_WRONLY, 0, &fd);
 	if (result) {
 		goto fail;
 	}
@@ -199,6 +167,93 @@ fdtable_destroy(struct fd_table *table)
 
 	lock_destroy(table->ft_lock);
 	kfree(table);
+}
+
+int
+fdtable_open(struct fd_table *table, const char *kpath, int flags, mode_t mode, int *fd_ret)
+{
+	struct vnode *vn;
+	struct open_file *of;
+	char *path_copy;
+	int fd;
+	int result;
+
+	path_copy = kstrdup(kpath);
+	if (path_copy == NULL) {
+		return ENOMEM;
+	}
+
+	result = vfs_open(path_copy, flags, mode, &vn);
+	kfree(path_copy);
+	if (result) {
+		return result;
+	}
+
+	of = system_table_alloc(vn, flags);
+	if (of == NULL) {
+		vfs_close(vn);
+		return ENFILE;
+	}
+
+	lock_acquire(table->ft_lock);
+	for (fd = 0; fd < OPEN_MAX; fd++) {
+		if (table->ft_entries[fd] == NULL) {
+			table->ft_entries[fd] = of;
+			break;
+		}
+	}
+	lock_release(table->ft_lock);
+
+	if (fd == OPEN_MAX) {
+		lock_acquire(system_table_lock);
+		of->of_refcount--;
+		if (of->of_refcount == 0) {
+			system_table[of->of_index] = NULL;
+			lock_release(system_table_lock);
+			vfs_close(of->of_vn);
+			lock_destroy(of->of_lock);
+			kfree(of);
+		} else {
+			lock_release(system_table_lock);
+		}
+		return EMFILE;
+	}
+
+	*fd_ret = fd;
+	return 0;
+}
+
+int
+fdtable_close(struct fd_table *table, int fd)
+{
+	struct open_file *of;
+
+	if (fd < 0 || fd >= OPEN_MAX) {
+		return EBADF;
+	}
+
+	lock_acquire(table->ft_lock);
+	of = table->ft_entries[fd];
+	if (of == NULL) {
+		lock_release(table->ft_lock);
+		return EBADF;
+	}
+	table->ft_entries[fd] = NULL;
+	lock_release(table->ft_lock);
+
+	lock_acquire(system_table_lock);
+	of->of_refcount--;
+	if (of->of_refcount == 0) {
+		system_table[of->of_index] = NULL;
+		lock_release(system_table_lock);
+		vfs_close(of->of_vn);
+		lock_destroy(of->of_lock);
+		kfree(of);
+	} else {
+		lock_release(system_table_lock);
+	}
+
+	return 0;
 }
 
 #endif /* OPT_SHELL */
