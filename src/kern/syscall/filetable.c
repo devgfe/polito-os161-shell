@@ -11,6 +11,7 @@
 #include <vfs.h>
 #include <synch.h>
 #include <filetable.h>
+#include <uio.h>
 #include "opt-shell.h"
 
 #if OPT_SHELL
@@ -252,6 +253,84 @@ fdtable_close(struct fd_table *table, int fd)
 	} else {
 		lock_release(system_table_lock);
 	}
+
+	return 0;
+}
+
+int
+fdtable_read(struct fd_table *table, int fd, void *kbuf, size_t size, int32_t *retval)
+{
+	struct open_file *of;
+	struct iovec iov;
+	struct uio u;
+	int result;
+
+	if (fd < 0 || fd >= OPEN_MAX) {
+		return EBADF;
+	}
+
+	lock_acquire(table->ft_lock);
+	of = table->ft_entries[fd];
+	lock_release(table->ft_lock);
+
+	if (of == NULL) {
+		return EBADF;
+	}
+	if ((of->of_flags & O_ACCMODE) == O_WRONLY) {
+		return EBADF;
+	}
+
+	lock_acquire(of->of_lock);
+	uio_kinit(&iov, &u, kbuf, size, of->of_offset, UIO_READ);
+
+	result = VOP_READ(of->of_vn, &u);
+	if (result) {
+		lock_release(of->of_lock);
+		return result;
+	}
+
+	*retval = size - u.uio_resid;
+	of->of_offset = u.uio_offset;
+	lock_release(of->of_lock);
+
+	return 0;
+}
+
+int
+fdtable_write(struct fd_table *table, int fd, const void *kbuf, size_t size, int32_t *retval)
+{
+	struct open_file *of;
+	struct iovec iov;
+	struct uio u;
+	int result;
+
+	if (fd < 0 || fd >= OPEN_MAX) {
+		return EBADF;
+	}
+
+	lock_acquire(table->ft_lock);
+	of = table->ft_entries[fd];
+	lock_release(table->ft_lock);
+
+	if (of == NULL) {
+		return EBADF;
+	}
+	if ((of->of_flags & O_ACCMODE) == O_RDONLY) {
+		return EBADF;
+	}
+
+	lock_acquire(of->of_lock);
+	uio_kinit(&iov, &u, (void *)kbuf, size, of->of_offset, UIO_WRITE);
+
+	result = VOP_WRITE(of->of_vn, &u);
+	if (result) {
+		lock_release(of->of_lock);
+		return result;
+	}
+
+	*retval = size - u.uio_resid;
+	of->of_offset = u.uio_offset;
+	lock_release(of->of_lock);
 
 	return 0;
 }
