@@ -37,6 +37,7 @@
  */
 
 #include <spinlock.h>
+#include "opt-shell.h"
 
 struct addrspace;
 struct thread;
@@ -60,6 +61,11 @@ struct vnode;
  * without sleeping.
  */
 struct proc {
+
+	#if OPT_SHELL
+		pid_t pid;
+	#endif
+
 	char *p_name;			/* Name of this process */
 	struct spinlock p_lock;		/* Lock for this structure */
 	unsigned p_numthreads;		/* Number of threads in this process */

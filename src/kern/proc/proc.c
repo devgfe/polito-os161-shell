@@ -49,6 +49,28 @@
 #include <addrspace.h>
 #include <vnode.h>
 
+#if OPT_SHELL
+	#include "synch.h"
+	#include "kern/errno.h"
+	
+	#define PID_MAX 32767
+
+	/* Assign a unique process identifier (PID) to the kernel process. */
+	static void proc_init_kernel_pid(struct proc *proc);
+
+	/* Assign a unique process identifier (PID) to the given process. */
+	static int proc_assign_pid(struct proc *proc);
+
+	/* Returns an available PID, reusing a free one if the PID range has been exhausted. */
+	static int find_valid_pid(void);
+
+
+	static struct proc *pid_table[PID_MAX + 1];
+	static struct lock *pid_lock; // lock for pid assignment
+	static pid_t next_pid;
+
+#endif
+
 /*
  * The process for the kernel; this holds all the kernel-only threads.
  */
@@ -81,6 +103,18 @@ proc_create(const char *name)
 
 	/* VFS fields */
 	proc->p_cwd = NULL;
+
+	#if OPT_SHELL
+		if(kproc != NULL){
+			int err = proc_assign_pid(proc);
+			if (err) {
+				proc_destroy(proc);
+				return NULL;
+			}
+		}else{
+			proc_init_kernel_pid(proc); // kernel process initialitation
+		}
+	#endif
 
 	return proc;
 }
@@ -169,6 +203,18 @@ proc_destroy(struct proc *proc)
 	spinlock_cleanup(&proc->p_lock);
 
 	kfree(proc->p_name);
+
+	#if OPT_SHELL
+		lock_acquire(pid_lock);
+
+		if(proc->pid >= 0){
+			pid_table[proc->pid] = NULL;
+			proc->pid = -1;
+		}
+
+		lock_release(pid_lock);
+	#endif
+
 	kfree(proc);
 }
 
@@ -182,6 +228,15 @@ proc_bootstrap(void)
 	if (kproc == NULL) {
 		panic("proc_create for kproc failed\n");
 	}
+
+	#if OPT_SHELL
+		// pid_lock initialization
+		pid_lock = lock_create("pid_lock");
+		if (pid_lock == NULL) {
+			panic("lock_create for pid_lock failed\n");
+		}
+	#endif
+
 }
 
 /*
@@ -318,3 +373,44 @@ proc_setas(struct addrspace *newas)
 	spinlock_release(&proc->p_lock);
 	return oldas;
 }
+
+#if OPT_SHELL
+
+	static int proc_assign_pid(struct proc *proc){
+		lock_acquire(pid_lock);
+
+		int pid = find_valid_pid();
+		if (pid < 0) {
+			lock_release(pid_lock);
+			return ENPROC;
+		}
+
+		proc->pid = pid;
+		pid_table[pid] = proc;
+
+		if (pid == next_pid && next_pid <= PID_MAX)
+			next_pid++;
+
+		lock_release(pid_lock);
+		return 0;
+				
+	}
+
+	static void proc_init_kernel_pid(struct proc *proc){
+		proc->pid = 0;
+		pid_table[0] = proc;
+		next_pid=1;
+	}
+
+
+	static int find_valid_pid(void){
+		if(next_pid <= PID_MAX) return next_pid;
+
+		for(int i = 1; i <= PID_MAX ; i++){
+			if(pid_table[i] == NULL) return i;
+		}
+
+		return -1;
+	}
+
+#endif
