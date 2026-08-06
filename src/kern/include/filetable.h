@@ -14,6 +14,7 @@ int fdtable_close(struct fd_table *table, int fd);
 int fdtable_read(struct fd_table *table, int fd, void *kbuf, size_t size, int32_t *retval);
 int fdtable_write(struct fd_table *table, int fd, const void *kbuf, size_t size, int32_t *retval);
 int fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval);
+int fdtable_dup2(struct fd_table *table, int oldfd, int newfd, int32_t *retval);
 #endif
 
 #endif /* _FILETABLE_H_ */

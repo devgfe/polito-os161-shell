@@ -65,9 +65,12 @@ sys_write(int fd, userptr_t buf, size_t size, int32_t *retval)
 }
 
 int
-sys_lseek(int fd, off_t pos, int code, off_t *retval)
-{
+sys_lseek(int fd, off_t pos, int code, off_t *retval){
 	return fdtable_lseek(curproc->p_fdtable, fd, pos, code, retval);
 }
 
+int
+sys_dup2(int oldfd, int newfd, int32_t *retval){
+	return fdtable_dup2(curproc->p_fdtable, oldfd, newfd, retval);
+}
 #endif /* OPT_SHELL */

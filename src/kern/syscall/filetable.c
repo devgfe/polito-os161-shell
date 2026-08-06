@@ -395,6 +395,57 @@ fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval
 	return 0;
 }
 
+int
+fdtable_dup2(struct fd_table *table, int oldfd, int newfd, int32_t *retval)
+{
+	struct open_file *of;
+	struct open_file *old_at_new;
+
+	if (oldfd < 0 || oldfd >= OPEN_MAX || newfd < 0 || newfd >= OPEN_MAX) {
+		return EBADF;
+	}
+
+	lock_acquire(table->ft_lock);
+
+	of = table->ft_entries[oldfd];
+	if (of == NULL) {
+		lock_release(table->ft_lock);
+		return EBADF;
+	}
+
+	if (oldfd == newfd) {
+		lock_release(table->ft_lock);
+		*retval = newfd;
+		return 0;
+	}
+
+	old_at_new = table->ft_entries[newfd];
+	table->ft_entries[newfd] = of;
+
+	lock_acquire(system_table_lock);
+	of->of_refcount++;
+	lock_release(system_table_lock);
+
+	lock_release(table->ft_lock);
+
+	if (old_at_new != NULL) {
+		lock_acquire(system_table_lock);
+		old_at_new->of_refcount--;
+		if (old_at_new->of_refcount == 0) {
+			system_table[old_at_new->of_index] = NULL;
+			lock_release(system_table_lock);
+			vfs_close(old_at_new->of_vn);
+			lock_destroy(old_at_new->of_lock);
+			kfree(old_at_new);
+		} else {
+			lock_release(system_table_lock);
+		}
+	}
+
+	*retval = newfd;
+	return 0;
+}
+
 #endif /* OPT_SHELL */
 
 #endif
