@@ -12,6 +12,8 @@
 #include <synch.h>
 #include <filetable.h>
 #include <uio.h>
+#include <kern/seek.h>
+#include <kern/stat.h>
 #include "opt-shell.h"
 
 #if OPT_SHELL
@@ -332,6 +334,64 @@ fdtable_write(struct fd_table *table, int fd, const void *kbuf, size_t size, int
 	of->of_offset = u.uio_offset;
 	lock_release(of->of_lock);
 
+	return 0;
+}
+
+int
+fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval)
+{
+	struct open_file *of;
+	struct stat statbuf;
+	off_t new_offset;
+	int result;
+
+	if (fd < 0 || fd >= OPEN_MAX) {
+		return EBADF;
+	}
+
+	lock_acquire(table->ft_lock);
+	of = table->ft_entries[fd];
+	lock_release(table->ft_lock);
+
+	if (of == NULL) {
+		return EBADF;
+	}
+
+	if (!VOP_ISSEEKABLE(of->of_vn)) {
+		return ESPIPE;
+	}
+
+	lock_acquire(of->of_lock);
+
+	switch (code) {
+	    case SEEK_SET:
+		new_offset = pos;
+		break;
+	    case SEEK_CUR:
+		new_offset = of->of_offset + pos;
+		break;
+	    case SEEK_END:
+		result = VOP_STAT(of->of_vn, &statbuf);
+		if (result) {
+			lock_release(of->of_lock);
+			return result;
+		}
+		new_offset = statbuf.st_size + pos;
+		break;
+	    default:
+		lock_release(of->of_lock);
+		return EINVAL;
+	}
+
+	if (new_offset < 0) {
+		lock_release(of->of_lock);
+		return EINVAL;
+	}
+
+	of->of_offset = new_offset;
+	*retval = new_offset;
+
+	lock_release(of->of_lock);
 	return 0;
 }
 

@@ -64,4 +64,10 @@ sys_write(int fd, userptr_t buf, size_t size, int32_t *retval)
 	return result;
 }
 
+int
+sys_lseek(int fd, off_t pos, int code, off_t *retval)
+{
+	return fdtable_lseek(curproc->p_fdtable, fd, pos, code, retval);
+}
+
 #endif /* OPT_SHELL */
