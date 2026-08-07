@@ -35,7 +35,7 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
-
+#include "opt-shell.h"
 
 /*
  * System call dispatcher.
@@ -80,7 +80,7 @@ syscall(struct trapframe *tf)
 {
 	int callno;
 	int32_t retval;
-	int err;
+	int err=0;
 
 	KASSERT(curthread != NULL);
 	KASSERT(curthread->t_curspl == 0);
@@ -98,18 +98,44 @@ syscall(struct trapframe *tf)
 	 */
 
 	retval = 0;
-
 	switch (callno) {
 	    case SYS_reboot:
-		err = sys_reboot(tf->tf_a0);
+			err = sys_reboot(tf->tf_a0);
 		break;
 
 	    case SYS___time:
-		err = sys___time((userptr_t)tf->tf_a0,
-				 (userptr_t)tf->tf_a1);
+			err = sys___time((userptr_t)tf->tf_a0, (userptr_t)tf->tf_a1);
 		break;
 
 	    /* Add stuff here */
+
+		case SYS_write:
+	        retval = sys_write((int)tf->tf_a0,
+				(userptr_t)tf->tf_a1,
+				(size_t)tf->tf_a2);
+            if (retval<0) err = ENOSYS; 
+			else err = 0;
+        break;
+\
+	    case SYS_read:
+	        retval = sys_read((int)tf->tf_a0,
+				(userptr_t)tf->tf_a1,
+				(size_t)tf->tf_a2);
+            if (retval<0) err = ENOSYS; 
+			else err = 0;
+        break;
+
+
+	#if OPT_SHELL
+		case SYS_getpid:
+			sys_getpid(&retval); // This system call never fails, so the function always returns 0 and stores the process ID in retval.
+		break;
+	#endif
+
+		case SYS__exit:
+	        /* TODO: just avoid crash */
+ 	        sys__exit((int)tf->tf_a0);
+        break;
 
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
