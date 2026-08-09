@@ -65,7 +65,7 @@
 	static int find_valid_pid(void);
 
 
-	static struct proc *pid_table[PID_MAX + 1];
+	static struct proc *process_table[PID_MAX + 1];
 	static struct lock *pid_lock; // lock for pid assignment
 	static pid_t next_pid;
 
@@ -114,6 +114,14 @@ proc_create(const char *name)
 		}else{
 			proc_init_kernel_pid(proc); // kernel process initialitation
 		}
+
+		proc->p_parent = -1;
+		proc->p_exited = false;
+		proc->p_exitcode = 0;
+
+		proc->p_waitlock = lock_create("waitlock"); // TO DO - bisogna distruggere i lock
+		proc->p_waitcv   = cv_create("waitcv");
+
 	#endif
 
 	return proc;
@@ -207,9 +215,9 @@ proc_destroy(struct proc *proc)
 	#if OPT_SHELL
 		lock_acquire(pid_lock);
 
-		if(proc->pid >= 0){
-			pid_table[proc->pid] = NULL;
-			proc->pid = -1;
+		if(proc->p_pid >= 0){
+			pid_release(proc->p_pid);
+			proc->p_pid = -1;
 		}
 
 		lock_release(pid_lock);
@@ -376,6 +384,18 @@ proc_setas(struct addrspace *newas)
 
 #if OPT_SHELL
 
+	void pid_release(pid_t pid){
+		process_table[pid] = NULL;
+	}
+
+	struct proc* proc_lookup(pid_t pid){
+		return process_table[pid];
+	}
+
+#endif
+
+#if OPT_SHELL
+
 	static int proc_assign_pid(struct proc *proc){
 		lock_acquire(pid_lock);
 
@@ -385,8 +405,8 @@ proc_setas(struct addrspace *newas)
 			return ENPROC;
 		}
 
-		proc->pid = pid;
-		pid_table[pid] = proc;
+		proc->p_pid = pid;
+		process_table[pid] = proc;
 
 		if (pid == next_pid && next_pid <= PID_MAX)
 			next_pid++;
@@ -397,8 +417,8 @@ proc_setas(struct addrspace *newas)
 	}
 
 	static void proc_init_kernel_pid(struct proc *proc){
-		proc->pid = 0;
-		pid_table[0] = proc;
+		proc->p_pid = 0;
+		process_table[0] = proc;
 		next_pid=1;
 	}
 
@@ -407,7 +427,7 @@ proc_setas(struct addrspace *newas)
 		if(next_pid <= PID_MAX) return next_pid;
 
 		for(int i = 1; i <= PID_MAX ; i++){
-			if(pid_table[i] == NULL) return i;
+			if(process_table[i] == NULL) return i;
 		}
 
 		return -1;
