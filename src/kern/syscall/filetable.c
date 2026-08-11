@@ -66,12 +66,14 @@ system_table_alloc(struct vnode *vn, int flags)
 		kfree(of);
 		return NULL;
 	}
+
+	/* initialization of variables */
 	of->of_vn = vn;
 	of->of_offset = 0;
 	of->of_flags = flags;
 	of->of_refcount = 1;
 
-	lock_acquire(system_table_lock);
+	lock_acquire(system_table_lock); /* the table is shared by all processes so need to be protected by a lock */
 	for (i = 0; i < SYSTEM_OPEN_MAX; i++) {
 		if (system_table[i] == NULL) {
 			system_table[i] = of;
@@ -79,8 +81,9 @@ system_table_alloc(struct vnode *vn, int flags)
 			break;
 		}
 	}
-	lock_release(system_table_lock);
+	lock_release(system_table_lock); /* the table is full */
 
+	/* when the table is full i can destroy the lock */
 	if (i == SYSTEM_OPEN_MAX) {
 		lock_destroy(of->of_lock);
 		kfree(of);
@@ -93,6 +96,9 @@ system_table_alloc(struct vnode *vn, int flags)
 struct fd_table *
 fdtable_create_standard(void)
 {
+	/* Creation of the table of a process with stdin, stdout and stderr linked to che console.
+	 * The 'open' function finds the first possible empty slot increasing fs
+	*/
 	struct fd_table *ft;
 	int result;
 	int i;
@@ -109,20 +115,21 @@ fdtable_create_standard(void)
 		return NULL;
 	}
 
+	/* number of new lines equal to the number of maximum possible open files */
 	for (i = 0; i < OPEN_MAX; i++) {
 		ft->ft_entries[i] = NULL;
 	}
 	ft->ft_cwd = NULL;
 
-	result = fdtable_open(ft, "con:", O_RDONLY, 0, &fd);
+	result = fdtable_open(ft, "con:", O_RDONLY, 0, &fd); // fd = 0: stdin
 	if (result) {
 		goto fail;
 	}
-	result = fdtable_open(ft, "con:", O_WRONLY, 0, &fd);
+	result = fdtable_open(ft, "con:", O_WRONLY, 0, &fd); // fd = 1: stdout
 	if (result) {
 		goto fail;
 	}
-	result = fdtable_open(ft, "con:", O_WRONLY, 0, &fd);
+	result = fdtable_open(ft, "con:", O_WRONLY, 0, &fd); // fd = 2: stderr
 	if (result) {
 		goto fail;
 	}
@@ -137,6 +144,10 @@ fail:
 void
 fdtable_destroy(struct fd_table *table)
 {
+	/* Destroies the table of a process.
+	 * It is based on the counter of references: when the reference to a process is zero,
+	 * the table is deleted.
+	*/
 	int i;
 	struct open_file *of;
 
@@ -154,6 +165,7 @@ fdtable_destroy(struct fd_table *table)
 		lock_acquire(system_table_lock);
 		of->of_refcount--;
 		if (of->of_refcount == 0) {
+			/* this is the last one reference -> everithing id destroied */
 			system_table[of->of_index] = NULL;
 			lock_release(system_table_lock);
 			vfs_close(of->of_vn);
@@ -197,7 +209,9 @@ fdtable_open(struct fd_table *table, const char *kpath, int flags, mode_t mode, 
 		vfs_close(vn);
 		return ENFILE;
 	}
-
+	/* look for a free slot in the process table only now, holding the
+	 * lock as briefly as possible — the actual open (I/O) is already
+	 * done above, so we don't hold the lock during slow operations */
 	lock_acquire(table->ft_lock);
 	for (fd = 0; fd < OPEN_MAX; fd++) {
 		if (table->ft_entries[fd] == NULL) {
@@ -208,6 +222,9 @@ fdtable_open(struct fd_table *table, const char *kpath, int flags, mode_t mode, 
 	lock_release(table->ft_lock);
 
 	if (fd == OPEN_MAX) {
+		/* process table full: the open_file was already created above,
+		 * so it must be undone (same refcount-release logic used in
+		 * fdtable_destroy/fdtable_close) */
 		lock_acquire(system_table_lock);
 		of->of_refcount--;
 		if (of->of_refcount == 0) {
@@ -229,6 +246,11 @@ fdtable_open(struct fd_table *table, const char *kpath, int flags, mode_t mode, 
 int
 fdtable_close(struct fd_table *table, int fd)
 {
+	/* Closes one file descriptor. Doesn't necessarily close the
+ 	 * vnode: decrements the open_file's refcount, since it may be shared with
+ 	 * another process via dup2/fork — the vnode is only really closed when
+ 	 * the last reference goes away.
+ 	*/
 	struct open_file *of;
 
 	if (fd < 0 || fd >= OPEN_MAX) {
@@ -247,6 +269,7 @@ fdtable_close(struct fd_table *table, int fd)
 	lock_acquire(system_table_lock);
 	of->of_refcount--;
 	if (of->of_refcount == 0) {
+		/* last reference: all is deleted */
 		system_table[of->of_index] = NULL;
 		lock_release(system_table_lock);
 		vfs_close(of->of_vn);
