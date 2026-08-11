@@ -15,6 +15,7 @@ int fdtable_read(struct fd_table *table, int fd, void *kbuf, size_t size, int32_
 int fdtable_write(struct fd_table *table, int fd, const void *kbuf, size_t size, int32_t *retval);
 int fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval);
 int fdtable_dup2(struct fd_table *table, int oldfd, int newfd, int32_t *retval);
+int fdtable_clone(struct fd_table *source, struct fd_table **copy);
 #endif
 
 #endif /* _FILETABLE_H_ */

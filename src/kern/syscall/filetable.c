@@ -446,6 +446,46 @@ fdtable_dup2(struct fd_table *table, int oldfd, int newfd, int32_t *retval)
 	return 0;
 }
 
+int
+fdtable_clone(struct fd_table *source, struct fd_table **copy_ret)
+{
+	struct fd_table *copy;
+	struct open_file *of;
+	int i;
+
+	copy = kmalloc(sizeof(*copy));
+	if (copy == NULL) {
+		return ENOMEM;
+	}
+
+	copy->ft_lock = lock_create("fdtable");
+	if (copy->ft_lock == NULL) {
+		kfree(copy);
+		return ENOMEM;
+	}
+
+	for (i = 0; i < OPEN_MAX; i++) {
+		copy->ft_entries[i] = NULL;
+	}
+
+	lock_acquire(source->ft_lock);
+	for (i = 0; i < OPEN_MAX; i++) {
+		of = source->ft_entries[i];
+		if (of == NULL) {
+			continue;
+		}
+		copy->ft_entries[i] = of;
+
+		lock_acquire(system_table_lock);
+		of->of_refcount++;
+		lock_release(system_table_lock);
+	}
+	lock_release(source->ft_lock);
+
+	*copy_ret = copy;
+	return 0;
+}
+
 #endif /* OPT_SHELL */
 
 #endif
