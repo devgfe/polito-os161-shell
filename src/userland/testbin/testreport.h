@@ -5,23 +5,33 @@
 
 #include <stdio.h>
 
+/*
+ * Every helper below is static, so each test that includes this header
+ * gets its own copy. A given test only uses a subset of the helpers,
+ * and the build passes -Werror -Wunused-function, so we mark them all
+ * __attribute__((__unused__)) to keep the unused ones from failing the
+ * build. The attribute only suppresses the warning; the functions are
+ * still compiled and usable.
+ */
+#define TESTHELPER static __attribute__((__unused__))
+
 static int failures;
 
-static
+TESTHELPER
 void
 record_failure(void)
 {
 	failures++;
 }
 
-static
+TESTHELPER
 void
 pass(const char *description)
 {
 	printf("PASS: %s\n", description);
 }
 
-static
+TESTHELPER
 void
 fail(const char *description)
 {
@@ -29,7 +39,7 @@ fail(const char *description)
 	record_failure();
 }
 
-static
+TESTHELPER
 void
 fail_errno(const char *description, int expected_errno, int actual_errno)
 {
@@ -37,7 +47,7 @@ fail_errno(const char *description, int expected_errno, int actual_errno)
 	record_failure();
 }
 
-static
+TESTHELPER
 void
 expect_errno(const char *description, int syscall_failed, int expected_errno, int actual_errno)
 {
@@ -49,7 +59,7 @@ expect_errno(const char *description, int syscall_failed, int expected_errno, in
 	}
 }
 
-static
+TESTHELPER
 int
 finish_test(const char *test_name)
 {

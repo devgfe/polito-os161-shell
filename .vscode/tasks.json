@@ -44,7 +44,7 @@
             "problemMatcher": []
         },
         {
-            "label": "Build Syscall Tests",
+            "label": "Build Tests",
             "type": "shell",
             "command": "cd ${env:HOME}/os161/src && bmake build && bmake install",
             "problemMatcher": [],
@@ -53,17 +53,24 @@
         {
             "label": "Run Syscall Tests",
             "type": "shell",
-            "command": "cd ${env:HOME}/os161/root && printf '%s\n' 'p /testbin/chdirtest' 'p /testbin/closetest' 'p /testbin/dup2test' 'p /testbin/execvtest' 'p /testbin/getcwdtest' 'p /testbin/getpidtest' 'p /testbin/lseektest' 'p /testbin/opentest' 'p /testbin/readtest' 'p /testbin/waitpidtest' 'p /testbin/writetest' 'q' | sys161 kernel",
+            "command": "cd ${env:HOME}/os161/root && python3 ../src/testscripts/syscall_tests.py",
             "problemMatcher": []
         },
         {
-            "label": "Build and Run Syscall Tests",
+            "label": "Run Stdio Test",
+            "type": "shell",
+            "command": "cd ${env:HOME}/os161/root && python3 ../src/testscripts/stdio_test.py",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build and Run Tests",
             "type": "shell",
             "command": "true",
             "dependsOrder": "sequence",
             "dependsOn": [
-                "Build Syscall Tests",
-                "Run Syscall Tests"
+                "Build Tests",
+                "Run Syscall Tests",
+                "Run Stdio Test"
             ],
             "problemMatcher": [],
             "group": {

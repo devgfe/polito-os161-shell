@@ -100,8 +100,13 @@ main(void)
 	expect_errno("EBADF: invalid target descriptor", result == -1, EBADF,
 	             errno);
 
+	/*
+	 * EBADF: target descriptor that can never be valid.
+	 * OPEN_MAX is the maximum number of open files per process, so no
+	 * descriptor >= OPEN_MAX can exist.
+	 */
 	errno = 0;
-	result = dup2(filehandle, INT_MAX);
+	result = dup2(filehandle, OPEN_MAX + 1);
 	expect_errno("EBADF: impossible target descriptor", result == -1, EBADF,
 	             errno);
 	close(filehandle);
