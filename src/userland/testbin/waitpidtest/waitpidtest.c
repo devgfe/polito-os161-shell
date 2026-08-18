@@ -15,6 +15,13 @@
 #define BAD_USER_POINTER ((void *)0x40000000)
 #define EXIT_STATUS 73
 
+/*
+ * An option value that cannot collide with WNOHANG (1) or WUNTRACED (2)
+ * from <kern/wait.h>, so this test keeps expecting EINVAL even if
+ * WNOHANG support is added to the kernel later on.
+ */
+#define INVALID_OPTIONS 0x1000
+
 static
 pid_t
 spawn_exit(int exit_status)
@@ -66,6 +73,13 @@ main(void)
 				fail("_exit status is reported by waitpid");
 			}
 
+			/*
+			 * Per the waitpid man page, once every process expected
+			 * to collect the exit status has done so, the child
+			 * moves from "has exited already" to "does not exist".
+			 * A second waitpid must therefore fail with ESRCH
+			 * (nonexistent process), not ECHILD.
+			 */
 			errno = 0;
 			result = waitpid(child, &status, 0);
 			expect_errno("ESRCH: already reaped child", result == -1, ESRCH, errno);
@@ -96,7 +110,7 @@ main(void)
 	child = spawn_exit(0);
 	if (child > 0) {
 		errno = 0;
-		result = waitpid(child, &status, 1);
+		result = waitpid(child, &status, INVALID_OPTIONS);
 		expect_errno("EINVAL: unsupported options", result == -1, EINVAL, errno);
 		if (result != child) {
 			reap_if_possible(child);

@@ -19,7 +19,7 @@ main(void)
 {
 	const char expected_directory[] = "/testbin";
 	char buffer[64];
-	ssize_t result;
+	int result;
 
 	if (chdir(expected_directory) < 0) {
 		fail_errno("chdir for __getcwd test", 0, errno);
@@ -27,7 +27,7 @@ main(void)
 	}
 
 	result = __getcwd(buffer, sizeof(buffer));
-	if (result == (ssize_t)(sizeof(expected_directory) - 1) &&
+	if (result == (int)(sizeof(expected_directory) - 1) &&
 	    memcmp(buffer, expected_directory, sizeof(expected_directory) - 1) == 0) {
 		pass("__getcwd returns /testbin");
 	}

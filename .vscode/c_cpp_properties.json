@@ -28,7 +28,6 @@
                 "${env:HOME}/os161/tools/lib/gcc/mips-harvard-os161/4.8.3/include",
                 "${env:HOME}/os161/tools/lib/gcc/mips-harvard-os161/4.8.3/install-tools/include",
                 "${env:HOME}/os161/tools/lib/gcc/mips-harvard-os161/4.8.3/install-tools",
-                "${env:HOME}/os161/src/kern/compile/DUMBVM",
                 "${env:HOME}/os161/src/userland/testbin/randcall",
                 "${env:HOME}/os161/src/userland/testbin/frack",
                 "${env:HOME}/os161/src/userland/testbin/schedpong",
