@@ -67,6 +67,12 @@ int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
 int sys_execv(const_userptr_t program, const_userptr_t args);
 
 /* File system calls. */
+int sys_read(int fd, userptr_t buf, size_t size, int32_t *retval);
+int sys_write(int fd, userptr_t buf, size_t size, int32_t *retval);
+int sys_lseek(int fd, off_t pos, int code, off_t *retval);
+int sys_dup2(int oldfd, int newfd, int32_t *retval);
+int sys_chdir(userptr_t path);
+int sys___getcwd(userptr_t buf, size_t buflen, int32_t *retval);
 
 #endif
 

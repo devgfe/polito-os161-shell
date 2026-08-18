@@ -48,6 +48,7 @@
 #include <device.h>
 #include <syscall.h>
 #include <test.h>
+#include <filetable.h>
 #include <version.h>
 #include "autoconf.h"  // for pseudoconfig
 
@@ -111,6 +112,7 @@ boot(void)
 	thread_bootstrap();
 	hardclock_bootstrap();
 	vfs_bootstrap();
+	filetable_bootstrap();
 	kheap_nextgeneration();
 
 	/* Probe and initialize devices. Interrupts should come on. */
