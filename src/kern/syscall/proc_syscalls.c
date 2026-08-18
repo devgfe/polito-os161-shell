@@ -168,7 +168,7 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 
 		result = copyoutstr(
 			kargs + argsoffset,
-			(userptr_t)(argv_strings_base_aligned + argsoffset), 
+			(userptr_t)(argaddr), 
 			arglen, 
 			NULL
 		);
