@@ -9,7 +9,14 @@
 #include <vfs.h>
 #include <syscall.h>
 
-/* Replace the current process image. */
+/*
+ * sys_execv - replace current process image with a new program
+ *
+ * Flow: copy program path and args from userspace -> open and load ELF
+ *       -> create new address space -> build stack with argv -> enter new process
+ *
+ * On failure, restores the old address space and returns errno.
+ */
 int 
 sys_execv(const_userptr_t user_program, const_userptr_t user_argv) 
 {
@@ -38,6 +45,7 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 	kargs = NULL;
 	switched = 0;
 
+	/* Copy program path from user space */
 	kprogram = kmalloc(PATH_MAX);
 	if (kprogram == NULL) {
 		result = ENOMEM;
@@ -49,6 +57,8 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 		goto fail;
 	}
 
+	/* Copy all argv strings into a flat kernel buffer.
+	 * We reserve space for the pointer vector as we go to detect E2BIG early. */
 	kargs = kmalloc(ARG_MAX);
 	if (kargs == NULL) {
 		result = ENOMEM;
@@ -71,27 +81,27 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 			break;
 		}
 
-		size_t reserved_bytes = argsbytes + (argc + 2) * sizeof(vaddr_t); // +2 --> new arg + NULL
+		size_t reserved_bytes = argsbytes + (argc + 2) * sizeof(vaddr_t); // The +2 accounts for: new arg pointer + NULL terminator
 		if ( reserved_bytes >= ARG_MAX ) {
 			result = E2BIG;
 			goto fail;
 		}
 
 		size_t available = ARG_MAX - reserved_bytes;
-		size_t argbytes;
+		size_t single_arg_bytes;
 
 		result = copyinstr(
 			(const_userptr_t)user_arg,
 			kargs + argsbytes, 
 			available, 
-			&argbytes
+			&single_arg_bytes
 		);
 		if (result) {
 			if (result == ENAMETOOLONG) result = E2BIG;
 			goto fail;
 		}
 
-		argsbytes += argbytes;
+		argsbytes += single_arg_bytes;
 		argc++;
 	}
 
@@ -122,14 +132,16 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 		goto fail;
 	}
 
+	/* Build stack layout: [argv pointers][argv strings][padding]
+	 * argv_vector_base must be 8-byte aligned for MIPS ABI */
 	argv_strings_base = stackptr - argsbytes;
-	argv_strings_base_aligned = argv_strings_base & ~(vaddr_t)3; // 3 (dec) = 11 (bin) --> 2^2 * 1 byte --> 4 byte
+	argv_strings_base_aligned = argv_strings_base & ~(vaddr_t)3; /* Align down to 4 bytes: clear the 2 lowest bits */
 	argv_vector_base = argv_strings_base_aligned - (argc + 1) * sizeof(vaddr_t);
-	argv_vector_base_aligned = argv_vector_base & ~(vaddr_t)7; // 7 (dec) = 111 (bin) --> 2^3 * 1 byte --> 8 byte
+	argv_vector_base_aligned = argv_vector_base & ~(vaddr_t)7; /* Align down to 8 bytes: clear the 3 lowest bits */
 
 	argsoffset = 0;
 	for (int argnum = 0; argnum < argc; argnum++) {
-		size_t arglen = strlen(kargs + argsoffset) + 1; // +1 --> '\0'
+		size_t arglen = strlen(kargs + argsoffset) + 1; /* The +1 accounts for the string terminator '\0' */
 
 		argaddr = argv_strings_base + argsoffset;
 		result = copyout(
@@ -154,7 +166,7 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 		argsoffset += arglen;
 	}
 
-	argaddr = 0; // NULL
+	argaddr = 0; // NULL pointer
 	result = copyout(
 		&argaddr,
 		(userptr_t)(argv_vector_base + argc * sizeof(vaddr_t)),
@@ -169,6 +181,8 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 	}
 	kfree(kargs);
 	kfree(kprogram);
+
+	/* Pass control to new process - does not return on success */
 	enter_new_process(argc, (userptr_t)argv_vector_base, NULL, argv_vector_base_aligned, entrypoint);
 
 	panic("enter_new_process returned\n");
@@ -178,7 +192,7 @@ fail:
 	if (v != NULL) {
 		vfs_close(v);
 	}
-	if (switched) {
+	if (switched) { /* Restore old address space if we already switched to the new one */
 		proc_setas(oldas);
 		as_activate();
 	}
