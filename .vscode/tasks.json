@@ -42,6 +42,34 @@
             "type": "shell",
             "command": "cd ${env:HOME}/os161/root;sys161 kernel",
             "problemMatcher": []
+        },
+        {
+            "label": "Build Syscall Tests",
+            "type": "shell",
+            "command": "cd ${env:HOME}/os161/src && bmake build && bmake install",
+            "problemMatcher": [],
+            "group": "build"
+        },
+        {
+            "label": "Run Syscall Tests",
+            "type": "shell",
+            "command": "cd ${env:HOME}/os161/root && printf '%s\n' 'p /testbin/chdirtest' 'p /testbin/closetest' 'p /testbin/dup2test' 'p /testbin/execvtest' 'p /testbin/getcwdtest' 'p /testbin/getpidtest' 'p /testbin/lseektest' 'p /testbin/opentest' 'p /testbin/readtest' 'p /testbin/waitpidtest' 'p /testbin/writetest' 'q' | sys161 kernel",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build and Run Syscall Tests",
+            "type": "shell",
+            "command": "true",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Build Syscall Tests",
+                "Run Syscall Tests"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
         }
     ],
     "inputs": [

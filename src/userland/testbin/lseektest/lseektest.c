@@ -2,6 +2,12 @@
  * lseektest.c
  *
  * Tests successful lseek calls and deterministic errors from the manual page.
+ *
+ * The test file contains "abcdef" (6 bytes), so offsets and characters
+ * below refer to that content:
+ *
+ *   offset:  0    1    2    3    4    5	6
+ *   content: 'a'  'b'  'c'  'd'  'e'  'f'	EOF
  */
 
 #include <sys/types.h>
@@ -83,14 +89,18 @@ main(void)
 
 	errno = 0;
 	result = lseek(filehandle, -1, SEEK_SET);
-	expect_errno("EINVAL: negative resulting offset", result == -1, EINVAL,
-	             errno);
+	expect_errno("EINVAL: negative resulting offset", result == -1, EINVAL, errno);
 
 	errno = 0;
 	result = lseek(filehandle, 0, 12345);
 	expect_errno("EINVAL: invalid whence", result == -1, EINVAL, errno);
 	close(filehandle);
 
+	/*
+	 * ESPIPE: fd refers to an object which does not support seeking.
+	 * The null: device is a pure character device with no notion of a
+	 * file position, so every seek on it must fail with ESPIPE.
+	 */
 	devicehandle = open("null:", O_RDONLY);
 	if (devicehandle < 0) {
 		fail_errno("open for lseek test", 0, errno);

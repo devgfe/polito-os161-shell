@@ -12,8 +12,12 @@
 /*
  * sys_execv - replace current process image with a new program
  *
- * Flow: copy program path and args from userspace -> open and load ELF
- *       -> create new address space -> build stack with argv -> enter new process
+ * Flow: 
+ * 		-> copy program path and args from userspace 
+ * 		-> open and load ELF
+ *      -> create new address space 
+ * 		-> build stack with argv 
+ * 		-> enter new process
  *
  * On failure, restores the old address space and returns errno.
  */
@@ -132,8 +136,16 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 		goto fail;
 	}
 
-	/* Build stack layout: [argv pointers][argv strings][padding]
-	 * argv_vector_base must be 8-byte aligned for MIPS ABI */
+	/* Build the initial user stack layout:
+	 *
+	 *   high addresses
+	 *   +---------------------+  <- stackptr (from as_define_stack)
+	 *   | argv strings        |  NUL-terminated, packed back to back
+	 *   +---------------------+  <- argv_strings_base_aligned (4-byte aligned)
+	 *   | argv pointer vector |  argv[0..argc-1], then argv[argc] = NULL
+	 *   +---------------------+  <- argv_vector_base_aligned (8-byte aligned)
+	 *   low addresses
+	 */
 	argv_strings_base = stackptr - argsbytes;
 	argv_strings_base_aligned = argv_strings_base & ~(vaddr_t)3; /* Align down to 4 bytes: clear the 2 lowest bits */
 	argv_vector_base = argv_strings_base_aligned - (argc + 1) * sizeof(vaddr_t);
@@ -143,10 +155,11 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 	for (int argnum = 0; argnum < argc; argnum++) {
 		size_t arglen = strlen(kargs + argsoffset) + 1; /* The +1 accounts for the string terminator '\0' */
 
-		argaddr = argv_strings_base + argsoffset;
+		/* Address of this argument's string in the NEW user stack */
+		argaddr = argv_strings_base_aligned + argsoffset;
 		result = copyout(
 			&argaddr,
-			(userptr_t)(argv_vector_base + argnum * sizeof(vaddr_t)),
+			(userptr_t)(argv_vector_base_aligned + argnum * sizeof(vaddr_t)),
 			sizeof(argaddr)
 		);
 		if (result) {
@@ -155,7 +168,7 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 
 		result = copyoutstr(
 			kargs + argsoffset,
-			(userptr_t)(argv_strings_base + argsoffset), 
+			(userptr_t)(argv_strings_base_aligned + argsoffset), 
 			arglen, 
 			NULL
 		);
@@ -166,10 +179,11 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 		argsoffset += arglen;
 	}
 
-	argaddr = 0; // NULL pointer
+	/* argv[argc] must be NULL, as required by the execv specification */
+	argaddr = 0;
 	result = copyout(
 		&argaddr,
-		(userptr_t)(argv_vector_base + argc * sizeof(vaddr_t)),
+		(userptr_t)(argv_vector_base_aligned + argc * sizeof(vaddr_t)),
 		sizeof(argaddr)
 	);
 	if (result) {
@@ -182,8 +196,10 @@ sys_execv(const_userptr_t user_program, const_userptr_t user_argv)
 	kfree(kargs);
 	kfree(kprogram);
 
-	/* Pass control to new process - does not return on success */
-	enter_new_process(argc, (userptr_t)argv_vector_base, NULL, argv_vector_base_aligned, entrypoint);
+	/* Pass control to new process - does not return on success.
+	 * argv_vector_base_aligned is both the user address of argv and the new
+	 * stack pointer */
+	enter_new_process(argc, (userptr_t)argv_vector_base_aligned, NULL, argv_vector_base_aligned, entrypoint);
 
 	panic("enter_new_process returned\n");
 	return EINVAL;

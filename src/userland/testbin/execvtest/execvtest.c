@@ -15,8 +15,21 @@
 #include "../testreport.h"
 
 #define BAD_USER_POINTER ((void *)0x40000000)
-#define CHILD_MISSING_ERRNO 100
-#define CHILD_UNEXPECTED_RETURN 101
+
+/*
+ * The child communicates WHY execv failed back to the parent through
+ * its exit status: on failure it exits with the errno value, and the
+ * parent compares it with the expected one.
+ *
+ * The two sentinel values below report test-harness problems instead
+ * of an errno. They are chosen well above every errno value defined
+ * in <kern/errno.h> (which currently go up to 64), so they can never
+ * be mistaken for a real errno produced by execv. If new errno values
+ * are ever added to the kernel, they must stay below these sentinels.
+ */
+#define CHILD_MISSING_ERRNO 100		/* execv failed but left errno == 0 */
+#define CHILD_UNEXPECTED_RETURN 101	/* execv returned something != -1 */
+
 #define ARGTEST_PATH "/testbin/argtest"
 
 static
@@ -37,7 +50,13 @@ expect_exec(const char *description, const char *program, char **args,
 	}
 
 	if (pid == 0) { 
-		/* Child */
+		/*
+		 * Child: try to replace this process image.
+		 * On success execv does not return at all. On failure it
+		 * returns -1 and sets errno: report the errno to the parent
+		 * as our exit status. The two sentinel exit codes report
+		 * contract violations instead (see their definitions above).
+		 */
 		errno = 0;
 		result = execv(program, args);
 		if (result != -1) {
