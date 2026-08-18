@@ -10,6 +10,8 @@
 
 #include "../testreport.h"
 
+#define EXPECTED_CHAR 'x'
+
 static
 int
 write_failed(int filehandle, const char *buffer, size_t length)
@@ -66,6 +68,9 @@ main(void)
 
 	if (read_failed(STDIN_FILENO, &character, 1)) {
 		fail_errno("read from stdin (fd 0)", 0, errno);
+	}
+	else if (character != EXPECTED_CHAR) {
+		fail("read from stdin (fd 0): wrong character");
 	}
 	else {
 		pass("read from stdin (fd 0)");

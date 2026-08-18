@@ -37,6 +37,10 @@
 #include <syscall.h>
 #include "opt-shell.h"
 
+#if OPT_SHELL
+	#include <copyinout.h>
+#endif
+
 
 /*
  * System call dispatcher.
@@ -82,6 +86,15 @@ syscall(struct trapframe *tf)
 	int callno;
 	int32_t retval;
 	int err;
+#if OPT_SHELL
+	/*
+	 * Set to 1 by syscall cases that write the return value
+	 * directly into the trapframe (e.g. 64-bit results in v0/v1),
+	 * so that the common success path below does not overwrite
+	 * tf_v0 with retval.
+	 */
+	int retval_done = 0;
+#endif
 
 	KASSERT(curthread != NULL);
 	KASSERT(curthread->t_curspl == 0);
@@ -117,6 +130,72 @@ syscall(struct trapframe *tf)
 			(const_userptr_t)tf->tf_a1
 		);
 		break;
+
+	    case SYS_read:
+		err = sys_read(
+			(int)tf->tf_a0,
+			(userptr_t)tf->tf_a1,
+			(size_t)tf->tf_a2,
+			&retval
+		);
+		break;
+
+	    case SYS_write:
+		err = sys_write(
+			(int)tf->tf_a0,
+			(userptr_t)tf->tf_a1,
+			(size_t)tf->tf_a2,
+			&retval
+		);
+		break;
+
+	    case SYS_lseek: {
+		off_t pos;
+		off_t ret64;
+		uint32_t whence;
+
+		/*
+		 * lseek takes a 64-bit offset, passed in the aligned
+		 * register pair a2/a3 (fd is in a0, a1 is unused).
+		 * The whence code is the 4th argument, fetched from
+		 * the user stack at sp+16.
+		 */
+		pos = ((off_t)tf->tf_a2 << 32) | (uint32_t)tf->tf_a3;
+		err = copyin((const_userptr_t)(tf->tf_sp + 16),
+			     &whence, sizeof(whence));
+		if (err) {
+			break;
+		}
+
+		err = sys_lseek((int)tf->tf_a0, pos, (int)whence, &ret64);
+		if (err == 0) {
+			/* 64-bit return value in v0/v1 */
+			tf->tf_v0 = (uint32_t)(ret64 >> 32);
+			tf->tf_v1 = (uint32_t)(ret64 & 0xffffffff);
+			retval_done = 1;
+		}
+		break;
+	    }
+
+	    case SYS_dup2:
+		err = sys_dup2(
+			(int)tf->tf_a0,
+			(int)tf->tf_a1,
+			&retval
+		);
+		break;
+
+	    case SYS_chdir:
+		err = sys_chdir((userptr_t)tf->tf_a0);
+		break;
+
+	    case SYS___getcwd:
+		err = sys___getcwd(
+			(userptr_t)tf->tf_a0,
+			(size_t)tf->tf_a1,
+			&retval
+		);
+		break;
 #endif
 
 	    default:
@@ -137,7 +216,13 @@ syscall(struct trapframe *tf)
 	}
 	else {
 		/* Success. */
+#if OPT_SHELL
+		if (!retval_done) {
+			tf->tf_v0 = retval;
+		}
+#else
 		tf->tf_v0 = retval;
+#endif
 		tf->tf_a3 = 0;      /* signal no error */
 	}
 
