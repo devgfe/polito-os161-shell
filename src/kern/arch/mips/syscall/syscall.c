@@ -130,13 +130,27 @@ syscall(struct trapframe *tf)
 		case SYS_getpid:
 			sys_getpid(&retval); // This system call never fails, so the function always returns 0 and stores the process ID in retval.
 		break;
-	#endif
+	
 
 		case SYS__exit:
-	        /* TODO: just avoid crash */
  	        sys__exit((int)tf->tf_a0);
         break;
 
+		case SYS_fork:
+			err = sys_fork(tf, &retval);
+		break;
+
+		
+		case SYS_waitpid:
+			err = sys_waitpid(
+				(pid_t)tf->tf_a0,
+				(userptr_t)tf->tf_a1,
+				(int)tf->tf_a2,
+				&retval
+			);
+		break;
+
+	#endif
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
 		err = ENOSYS;
@@ -180,8 +194,22 @@ syscall(struct trapframe *tf)
  *
  * Thus, you can trash it and do things another way if you prefer.
  */
-void
-enter_forked_process(struct trapframe *tf)
+void enter_forked_process(void *data1, unsigned long data2)
 {
-	(void)tf;
+	struct trapframe *tf = (struct trapframe *) data1;
+	(void)data2;
+
+	#if OPT_SHELL
+		KASSERT(tf != NULL);
+
+		tf->tf_v0 = 0; 		/* return value of the child */
+		tf->tf_a3 = 0;	 	/* signal no error */
+		tf->tf_epc += 4;	/* program counter increment */
+
+		mips_usermode(tf);
+
+		panic("enter_forked_process returned\n");
+	#else 
+		(void)tf;
+	#endif
 }
