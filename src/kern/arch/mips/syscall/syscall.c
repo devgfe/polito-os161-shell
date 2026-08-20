@@ -202,9 +202,21 @@ syscall(struct trapframe *tf)
 		break;
 
 		case SYS__exit:
-	        /* TODO: just avoid crash */
  	        sys__exit((int)tf->tf_a0);
         break;
+
+		case SYS_fork:
+			err = sys_fork(tf, &retval);
+		break;
+
+		case SYS_waitpid:
+			err = sys_waitpid(
+				(pid_t)tf->tf_a0,
+				(userptr_t)tf->tf_a1,
+				(int)tf->tf_a2,
+				&retval
+			);
+		break;
 #endif
 
 	    default:
@@ -256,8 +268,32 @@ syscall(struct trapframe *tf)
  *
  * Thus, you can trash it and do things another way if you prefer.
  */
+#if OPT_SHELL
+
+void enter_forked_process(void *data1, unsigned long data2)
+{
+	struct trapframe *tf = (struct trapframe *) data1;
+	(void)data2;
+
+	KASSERT(tf != NULL);
+
+	tf->tf_v0 = 0; 		/* return value of the child */
+	tf->tf_a3 = 0;	 	/* signal no error */
+	tf->tf_epc += 4;	/* program counter increment */
+
+	mips_usermode(tf);
+
+	panic("enter_forked_process returned\n");
+
+}
+
+#else
+
 void
 enter_forked_process(struct trapframe *tf)
 {
 	(void)tf;
 }
+
+#endif
+

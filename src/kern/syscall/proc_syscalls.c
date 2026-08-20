@@ -14,6 +14,7 @@
 #include <kern/unistd.h>
 #include <kern/wait.h>
 #include <synch.h>
+#include <machine/trapframe.h>
 
 /*
  * sys_execv - replace current process image with a new program
@@ -295,5 +296,56 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 
 int sys_getpid(pid_t *retval){
 	*retval = curproc->p_pid;
+	return 0;
+}
+
+
+int sys_fork(struct trapframe *tf, pid_t *retval){
+	int err;
+	struct proc *child;
+	struct addrspace *child_as;
+	struct trapframe *child_tf;
+
+	child_tf = kmalloc(sizeof(struct trapframe));
+	if (child_tf == NULL) {
+		return ENOMEM;
+	}
+
+	*child_tf = *tf;
+
+	child = proc_create_runprogram(curproc->p_name);
+	if (child == NULL) {
+		kfree(child_tf);
+		return ENOMEM;
+	}
+	// Miglioramento possibile, da discutere: implementare la copy on write
+	err = as_copy(curproc->p_addrspace, &child_as);
+	if (err) {
+		proc_destroy(child);
+		kfree(child_tf);
+		return err;
+	}
+
+	child->p_addrspace = child_as;
+
+	// TO-DO : fare la copia della file descriptor table
+
+	child->p_parent = curproc->p_pid;
+
+	err = thread_fork(
+		curthread->t_name,
+		child,
+		enter_forked_process, 
+		child_tf,
+		0
+	);
+
+	if (err) {
+		proc_destroy(child);
+		kfree(child_tf);
+		return err;
+	}
+
+	*retval = child->p_pid;
 	return 0;
 }
