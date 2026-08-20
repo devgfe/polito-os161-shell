@@ -115,87 +115,96 @@ syscall(struct trapframe *tf)
 
 	switch (callno) {
 	    case SYS_reboot:
-		err = sys_reboot(tf->tf_a0);
+			err = sys_reboot(tf->tf_a0);
 		break;
 
 	    case SYS___time:
-		err = sys___time((userptr_t)tf->tf_a0,
+			err = sys___time((userptr_t)tf->tf_a0,
 				 (userptr_t)tf->tf_a1);
 		break;
 
 #if OPT_SHELL
 		case SYS_execv:
-		err = sys_execv(
-			(const_userptr_t)tf->tf_a0,
-			(const_userptr_t)tf->tf_a1
-		);
+			err = sys_execv(
+				(const_userptr_t)tf->tf_a0,
+				(const_userptr_t)tf->tf_a1
+			);
 		break;
 
 	    case SYS_read:
-		err = sys_read(
-			(int)tf->tf_a0,
-			(userptr_t)tf->tf_a1,
-			(size_t)tf->tf_a2,
-			&retval
-		);
+			err = sys_read(
+				(int)tf->tf_a0,
+				(userptr_t)tf->tf_a1,
+				(size_t)tf->tf_a2,
+				&retval
+			);
 		break;
 
 	    case SYS_write:
-		err = sys_write(
-			(int)tf->tf_a0,
-			(userptr_t)tf->tf_a1,
-			(size_t)tf->tf_a2,
-			&retval
-		);
+			err = sys_write(
+				(int)tf->tf_a0,
+				(userptr_t)tf->tf_a1,
+				(size_t)tf->tf_a2,
+				&retval
+			);
 		break;
 
 	    case SYS_lseek: {
-		off_t pos;
-		off_t ret64;
-		uint32_t whence;
+			off_t pos;
+			off_t ret64;
+			uint32_t whence;
 
-		/*
-		 * lseek takes a 64-bit offset, passed in the aligned
-		 * register pair a2/a3 (fd is in a0, a1 is unused).
-		 * The whence code is the 4th argument, fetched from
-		 * the user stack at sp+16.
-		 */
-		pos = ((off_t)tf->tf_a2 << 32) | (uint32_t)tf->tf_a3;
-		err = copyin((const_userptr_t)(tf->tf_sp + 16),
-			     &whence, sizeof(whence));
-		if (err) {
-			break;
-		}
+			/*
+			* lseek takes a 64-bit offset, passed in the aligned
+			* register pair a2/a3 (fd is in a0, a1 is unused).
+			* The whence code is the 4th argument, fetched from
+			* the user stack at sp+16.
+			*/
+			pos = ((off_t)tf->tf_a2 << 32) | (uint32_t)tf->tf_a3;
+			err = copyin((const_userptr_t)(tf->tf_sp + 16),
+					&whence, sizeof(whence));
+			if (err) {
+				break;
+			}
 
-		err = sys_lseek((int)tf->tf_a0, pos, (int)whence, &ret64);
-		if (err == 0) {
-			/* 64-bit return value in v0/v1 */
-			tf->tf_v0 = (uint32_t)(ret64 >> 32);
-			tf->tf_v1 = (uint32_t)(ret64 & 0xffffffff);
-			retval_done = 1;
-		}
+			err = sys_lseek((int)tf->tf_a0, pos, (int)whence, &ret64);
+			if (err == 0) {
+				/* 64-bit return value in v0/v1 */
+				tf->tf_v0 = (uint32_t)(ret64 >> 32);
+				tf->tf_v1 = (uint32_t)(ret64 & 0xffffffff);
+				retval_done = 1;
+			}
 		break;
 	    }
 
 	    case SYS_dup2:
-		err = sys_dup2(
-			(int)tf->tf_a0,
-			(int)tf->tf_a1,
-			&retval
-		);
+			err = sys_dup2(
+				(int)tf->tf_a0,
+				(int)tf->tf_a1,
+				&retval
+			);
 		break;
 
 	    case SYS_chdir:
-		err = sys_chdir((userptr_t)tf->tf_a0);
+			err = sys_chdir((userptr_t)tf->tf_a0);
 		break;
 
 	    case SYS___getcwd:
-		err = sys___getcwd(
-			(userptr_t)tf->tf_a0,
-			(size_t)tf->tf_a1,
-			&retval
-		);
+			err = sys___getcwd(
+				(userptr_t)tf->tf_a0,
+				(size_t)tf->tf_a1,
+				&retval
+			);
 		break;
+
+		case SYS_getpid:
+			sys_getpid(&retval); // This system call never fails, so the function always returns 0 and stores the process ID in retval.
+		break;
+
+		case SYS__exit:
+	        /* TODO: just avoid crash */
+ 	        sys__exit((int)tf->tf_a0);
+        break;
 #endif
 
 	    default:

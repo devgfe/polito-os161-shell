@@ -39,6 +39,10 @@
 #include <spinlock.h>
 #include "opt-shell.h"
 
+#if OPT_SHELL
+#define NO_PARENT ((pid_t)-1)
+#endif
+
 struct addrspace;
 struct thread;
 struct vnode;
@@ -74,11 +78,22 @@ struct proc {
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
 
+	/* add more material here as needed */
+
 #if OPT_SHELL
+	/* Process identification and exit state */
+	pid_t p_pid;
+	pid_t p_parent;
+
+	bool p_exited;
+	int p_exitcode;
+
+	struct cv *p_waitcv;
+	struct lock *p_waitlock;
+
+	/* File descriptor table */
 	struct fd_table *p_fdtable;	/* process file descriptor table */
 #endif
-
-	/* add more material here as needed */
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */
@@ -105,5 +120,12 @@ struct addrspace *proc_getas(void);
 /* Change the address space of the current process, and return the old one. */
 struct addrspace *proc_setas(struct addrspace *);
 
+#if OPT_SHELL
+/* Return a process structure given a process identifier. */
+struct proc* proc_lookup(pid_t pid);
+
+/* Release the pid in the process table. */
+void pid_release(pid_t pid);
+#endif 
 
 #endif /* _PROC_H_ */

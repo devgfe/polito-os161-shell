@@ -49,8 +49,27 @@
 #include <addrspace.h>
 #include <vnode.h>
 #include "opt-shell.h"
+
 #if OPT_SHELL
 #include <filetable.h>
+#include "synch.h"
+#include "kern/errno.h"
+
+#define PID_MAX 32767
+
+/* Assign a unique process identifier (PID) to the kernel process. */
+static void proc_init_kernel_pid(struct proc *proc);
+
+/* Assign a unique process identifier (PID) to the given process. */
+static int proc_assign_pid(struct proc *proc);
+
+/* Returns an available PID, reusing a free one if the PID range has been exhausted. */
+static int find_valid_pid(void);
+
+
+static struct proc *process_table[PID_MAX + 1];
+static struct lock *pid_lock; // lock for pid assignment
+static pid_t next_pid;
 #endif
 
 /*
@@ -87,7 +106,26 @@ proc_create(const char *name)
 	proc->p_cwd = NULL;
 
 #if OPT_SHELL
+	/* File descriptor table initialization */
 	proc->p_fdtable = NULL;
+
+	/* Process ID (PID) assignment */
+	if(kproc != NULL){
+		int err = proc_assign_pid(proc);
+		if (err) {
+			proc_destroy(proc);
+			return NULL;
+		}
+	}else{
+		proc_init_kernel_pid(proc); // kernel process initialitation
+	}
+
+	proc->p_parent = -1;
+	proc->p_exited = false;
+	proc->p_exitcode = 0;
+
+	proc->p_waitlock = lock_create("waitlock"); // TO DO - bisogna distruggere i lock
+	proc->p_waitcv   = cv_create("waitcv");
 #endif
 
 	return proc;
@@ -118,13 +156,6 @@ proc_destroy(struct proc *proc)
 	 * reference to this structure. (Otherwise it would be
 	 * incorrect to destroy it.)
 	 */
-
-#if OPT_SHELL
-	if (proc->p_fdtable != NULL) {
-		fdtable_destroy(proc->p_fdtable);
-		proc->p_fdtable = NULL;
-	}
-#endif
 
 	/* VFS fields */
 	if (proc->p_cwd) {
@@ -184,6 +215,25 @@ proc_destroy(struct proc *proc)
 	spinlock_cleanup(&proc->p_lock);
 
 	kfree(proc->p_name);
+
+#if OPT_SHELL
+	/* File descriptor table cleanup */
+	if (proc->p_fdtable != NULL) {
+		fdtable_destroy(proc->p_fdtable);
+		proc->p_fdtable = NULL;
+	}
+
+	/* Process ID (PID) release */
+	lock_acquire(pid_lock);
+
+	if(proc->p_pid >= 0){
+		pid_release(proc->p_pid);
+		proc->p_pid = -1;
+	}
+
+	lock_release(pid_lock);
+#endif
+
 	kfree(proc);
 }
 
@@ -197,6 +247,15 @@ proc_bootstrap(void)
 	if (kproc == NULL) {
 		panic("proc_create for kproc failed\n");
 	}
+
+#if OPT_SHELL
+	// pid_lock initialization
+	pid_lock = lock_create("pid_lock");
+	if (pid_lock == NULL) {
+		panic("lock_create for pid_lock failed\n");
+	}
+#endif
+
 }
 
 /*
@@ -341,3 +400,51 @@ proc_setas(struct addrspace *newas)
 	spinlock_release(&proc->p_lock);
 	return oldas;
 }
+
+#if OPT_SHELL
+
+void pid_release(pid_t pid){
+	process_table[pid] = NULL;
+}
+
+struct proc* proc_lookup(pid_t pid){
+	return process_table[pid];
+}
+
+static int proc_assign_pid(struct proc *proc){
+	lock_acquire(pid_lock);
+
+	int pid = find_valid_pid();
+	if (pid < 0) {
+		lock_release(pid_lock);
+		return ENPROC;
+	}
+
+	proc->p_pid = pid;
+	process_table[pid] = proc;
+
+	if (pid == next_pid && next_pid <= PID_MAX)
+		next_pid++;
+
+	lock_release(pid_lock);
+	return 0;
+			
+}
+
+static void proc_init_kernel_pid(struct proc *proc){
+	proc->p_pid = 0;
+	process_table[0] = proc;
+	next_pid=1;
+}
+
+static int find_valid_pid(void){
+	if(next_pid <= PID_MAX) return next_pid;
+
+	for(int i = 1; i <= PID_MAX ; i++){
+		if(process_table[i] == NULL) return i;
+	}
+
+	return -1;
+}
+
+#endif

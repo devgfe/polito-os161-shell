@@ -1,6 +1,3 @@
-#include "opt-shell.h"
-#if OPT_SHELL
-
 #include <types.h>
 #include <kern/errno.h>
 #include <lib.h>
@@ -126,5 +123,3 @@ sys___getcwd(userptr_t buf, size_t buflen, int32_t *retval)
 	*retval = buflen - u.uio_resid;
 	return 0;
 }
-
-#endif /* OPT_SHELL */

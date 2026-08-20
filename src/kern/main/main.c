@@ -48,9 +48,13 @@
 #include <device.h>
 #include <syscall.h>
 #include <test.h>
-#include <filetable.h>
 #include <version.h>
 #include "autoconf.h"  // for pseudoconfig
+
+#include "opt-shell.h"
+#if OPT_SHELL
+#include <filetable.h>
+#endif
 
 
 /*
@@ -112,7 +116,9 @@ boot(void)
 	thread_bootstrap();
 	hardclock_bootstrap();
 	vfs_bootstrap();
+#if OPT_SHELL
 	filetable_bootstrap();
+#endif
 	kheap_nextgeneration();
 
 	/* Probe and initialize devices. Interrupts should come on. */

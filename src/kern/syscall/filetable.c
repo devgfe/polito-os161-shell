@@ -1,6 +1,3 @@
-#include "opt-shell.h"
-#if OPT_SHELL
-
 #include <types.h>
 #include <kern/errno.h>
 #include <limits.h>
@@ -14,9 +11,6 @@
 #include <uio.h>
 #include <kern/seek.h>
 #include <kern/stat.h>
-#include "opt-shell.h"
-
-#if OPT_SHELL
 
 #define SYSTEM_OPEN_MAX (10 * OPEN_MAX)
 
@@ -508,7 +502,3 @@ fdtable_clone(struct fd_table *source, struct fd_table **copy_ret)
 	*copy_ret = copy;
 	return 0;
 }
-
-#endif /* OPT_SHELL */
-
-#endif
