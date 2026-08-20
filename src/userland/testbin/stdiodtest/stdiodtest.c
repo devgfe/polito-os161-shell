@@ -40,7 +40,7 @@ main(void)
 	char stdout_message[] = "stdiodtest: write to stdout (fd 1) succeeded\n";
 	char stderr_message[] = "stdiodtest: write to stderr (fd 2) succeeded\n";
 	char input_prompt[] = "stdiodtest: type one character for stdin (fd 0): ";
-	char echo_prefix[] = "\nstdiodtest: stdin returned: ";
+	char echo_prefix[] = "stdiodtest: stdin returned: ";
 	char success_message[] = "\nstdiodtest: PASS\n";
 
 	character = '\0';
