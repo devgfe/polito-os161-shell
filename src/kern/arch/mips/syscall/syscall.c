@@ -38,7 +38,7 @@
 #include "opt-shell.h"
 
 #if OPT_SHELL
-	#include <copyinout.h>
+#include <copyinout.h>
 #endif
 
 
@@ -198,12 +198,13 @@ syscall(struct trapframe *tf)
 		break;
 
 		case SYS_getpid:
-			sys_getpid(&retval); // This system call never fails, so the function always returns 0 and stores the process ID in retval.
+			err = sys_getpid(&retval); // sys_getpid never fails; stores the process ID in retval.
 		break;
 
 		case SYS__exit:
- 	        sys__exit((int)tf->tf_a0);
-        break;
+			sys__exit((int)tf->tf_a0);
+			err = 0; // never returns
+		break;
 
 		case SYS_fork:
 			err = sys_fork(tf, &retval);
