@@ -278,6 +278,11 @@ proc_create_runprogram(const char *name)
 
 	newproc->p_addrspace = NULL;
 
+#if OPT_SHELL
+	/* Set parent from the calling process (menu or shell) */
+	newproc->p_parent = curproc->p_pid;
+#endif
+
 	/* VFS fields */
 
 	/*
@@ -445,6 +450,31 @@ static int find_valid_pid(void){
 	}
 
 	return -1;
+}
+
+/*
+ * Wait for the given process to exit.
+ *
+ * Blocks the calling thread on the process's wait condition variable
+ * until the process sets p_exited (via sys__exit). Returns the
+ * process's exit code.
+ *
+ * Note: the caller is responsible for destroying the process
+ * structure afterwards with proc_destroy().
+ */
+int proc_wait(struct proc *proc){
+	int exitcode;
+
+	KASSERT(proc != NULL);
+
+	lock_acquire(proc->p_waitlock);
+	while (!proc->p_exited) {
+		cv_wait(proc->p_waitcv, proc->p_waitlock);
+	}
+	exitcode = proc->p_exitcode;
+	lock_release(proc->p_waitlock);
+
+	return exitcode;
 }
 
 #endif

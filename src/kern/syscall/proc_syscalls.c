@@ -271,15 +271,7 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 		return ECHILD;
 	}
 
-	lock_acquire(child->p_waitlock);
-
-	while (!child->p_exited) {
-		cv_wait(child->p_waitcv, child->p_waitlock);
-	}
-
-	int code = child->p_exitcode;
-
-	lock_release(child->p_waitlock);
+	int code = proc_wait(child);
 
 	int err = copyout(&code, status, sizeof(int));
 	if (err) {
@@ -329,8 +321,6 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 	child->p_addrspace = child_as;
 
 	// TO-DO : fare la copia della file descriptor table
-
-	child->p_parent = curproc->p_pid;
 
 	err = thread_fork(
 		curthread->t_name,

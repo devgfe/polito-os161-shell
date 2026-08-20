@@ -126,6 +126,9 @@ struct proc* proc_lookup(pid_t pid);
 
 /* Release the pid in the process table. */
 void pid_release(pid_t pid);
+
+/* Wait for the given process to exit and return its exit code. */
+int proc_wait(struct proc *proc);
 #endif 
 
 #endif /* _PROC_H_ */

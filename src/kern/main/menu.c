@@ -45,6 +45,11 @@
 #include <test.h>
 #include "opt-sfs.h"
 #include "opt-net.h"
+#include "opt-shell.h"
+
+#if OPT_SHELL
+#include <current.h>
+#endif
 
 /*
  * In-kernel menu and command dispatcher.
@@ -137,6 +142,15 @@ common_prog(int nargs, char **args)
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.
 	 */
+
+#if OPT_SHELL
+	/*
+	 * Wait for the child process to exit before returning to the menu.
+	 */
+	proc_wait(proc);
+
+	proc_destroy(proc);
+#endif
 
 	return 0;
 }
