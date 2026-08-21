@@ -11,7 +11,7 @@ import pexpect
 
 MENU_PROMPT = "OS/161 kernel [? for menu]: "
 STDIO_PROMPT = "stdiodtest: type one character for stdin (fd 0): "
-ANSWER = "x"          # the character we send to stdiodtest's stdin
+EXPECTED_CHAR = "x"   # must match EXPECTED_CHAR in stdiodtest.c
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
 	if proc.expect_exact([STDIO_PROMPT, pexpect.EOF, pexpect.TIMEOUT]) != 0:
 		print("\nABORTED: stdiodtest input prompt never appeared")
 		return 1
-	proc.send(ANSWER + "\r")
+	proc.send(EXPECTED_CHAR)
 
 	# 3. Wait until stdiodtest finishes (back to the menu), then quit.
 	if proc.expect_exact([MENU_PROMPT, pexpect.EOF, pexpect.TIMEOUT]) != 0:

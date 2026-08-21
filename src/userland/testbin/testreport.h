@@ -63,12 +63,16 @@ TESTHELPER
 int
 finish_test(const char *test_name)
 {
+	const char *separator = "========================================\n";
+
 	if (failures == 0) {
 		printf("%s: PASS\n", test_name);
+		printf("%s", separator);
 		return 0;
 	}
 
 	printf("%s: FAIL (%d checks failed)\n", test_name, failures);
+	printf("%s", separator);
 	return 1;
 }
 
