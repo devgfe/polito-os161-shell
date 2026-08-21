@@ -273,19 +273,21 @@ syscall(struct trapframe *tf)
 
 void enter_forked_process(void *data1, unsigned long data2)
 {
-	struct trapframe *tf = (struct trapframe *) data1;
+	struct trapframe tf;
 	(void)data2;
 
-	KASSERT(tf != NULL);
+	KASSERT(data1 != NULL);
 
-	tf->tf_v0 = 0; 		/* return value of the child */
-	tf->tf_a3 = 0;	 	/* signal no error */
-	tf->tf_epc += 4;	/* program counter increment */
+	tf = *(struct trapframe *)data1;
+	kfree(data1);
 
-	mips_usermode(tf);
+	tf.tf_v0 = 0; 		/* return value of the child */
+	tf.tf_a3 = 0;	 	/* signal no error */
+	tf.tf_epc += 4;		/* program counter increment */
+
+	mips_usermode(&tf);
 
 	panic("enter_forked_process returned\n");
-
 }
 
 #else

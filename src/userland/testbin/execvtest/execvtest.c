@@ -89,7 +89,7 @@ expect_exec(const char *description, const char *program, char **args,
 			fail("execv returned a value other than -1");
 		} 
 		else {
-			fail("execv returned an unexpected exit status");
+			fail_errno("execv returned an unexpected exit status", expected_exit_status, child_status);
 		}
 	}
 	else if (WIFSIGNALED(status)) {
