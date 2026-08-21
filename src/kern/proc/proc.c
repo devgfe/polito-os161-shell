@@ -278,11 +278,6 @@ proc_create_runprogram(const char *name)
 
 	newproc->p_addrspace = NULL;
 
-#if OPT_SHELL
-	/* Set parent from the calling process (menu or shell) */
-	newproc->p_parent = curproc->p_pid;
-#endif
-
 	/* VFS fields */
 
 	/*
@@ -298,6 +293,10 @@ proc_create_runprogram(const char *name)
 	spinlock_release(&curproc->p_lock);
 
 #if OPT_SHELL
+	/* Set parent from the calling process (menu or shell) */
+	newproc->p_parent = curproc->p_pid;
+
+	/* Create the fd table for the new process and initialize the standard descriptors */
 	newproc->p_fdtable = fdtable_create_standard();
 	if (newproc->p_fdtable == NULL) {
 		proc_destroy(newproc);
