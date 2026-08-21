@@ -80,6 +80,30 @@ The current branch adds `p_fdtable` to `struct proc`. `proc_create` initializes 
 
 The standard FD table is initialized in `proc_create_runprogram` because it is part of the process-specific state created with each process.
 
+### Kernel Menu: Argument Passing and Process Waiting
+
+The kernel menu (`src/kern/main/menu.c`) was modified in two related aspects: the passing of command-line arguments from the menu to the newly created process, and the synchronization of the menu with process termination, so that the menu prompt returns only after the started process has exited.
+
+#### Argument Passing
+
+In the base system, `cmd_progthread` only forwarded the program name to `runprogram()`, printing a warning if extra arguments were given. The menu now supports full argument passing:
+
+1. `cmd_dispatch` tokenizes the typed command line into an `args[]` array (e.g. `p /testbin/argtest foo bar`), and `common_prog` forwards it to the new thread.
+2. `cmd_progthread` passes the whole `args` array and the argument count to `runprogram(args, nargs)`, whose signature was changed accordingly (see `src/kern/syscall/runprogram.c`).
+3. `runprogram` copies the argument strings and the `argv` vector onto the new user stack via `initstack()` (`src/kern/syscall/initstack.c`), then enters user mode with `enter_new_process(argc, argv, ...)`, so the program receives a standard `argc`/`argv` pair.
+
+#### Waiting for Process Termination
+
+In the base system, `common_prog` returned to the menu immediately after `thread_fork`, without waiting for the subprogram. Now, after forking, `common_prog`:
+
+1. Saves the child PID and blocks in `proc_wait(proc)` until the child process exits (via `sys__exit`).
+2. Destroys the reaped process with `proc_destroy`.
+3. Prints the terminated PID and its exit code, then returns to the menu prompt.
+
+If `runprogram` fails inside the child thread (e.g. the executable does not exist), `cmd_progthread` prints the error and calls `sys__exit(1)`, so the parent waiting in `proc_wait` always wakes up and the menu never hangs.
+
+Blocking in `proc_wait` also removes the race condition noted in the original base-system comments: the menu loop no longer returns to the prompt (and therefore does not reuse its input buffer, which backs the `args` array) while the subprogram's thread is still reading it.
+
 ## Tests
 
 The following tests validate the implemented behaviour and relevant error paths.
