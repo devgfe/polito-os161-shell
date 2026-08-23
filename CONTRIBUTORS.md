@@ -15,4 +15,5 @@
 - `execv`
 - Standard file descriptors initialization (`stdin`, `stdout`, `stderr` on `con:`) on process creation
 - Syscall dispatcher (`syscall.c`)
+- Kernel menu: passing command-line arguments to started programs and waiting for their termination
 - Individual syscall testing and end-to-end integration testing via `bin/sh`
