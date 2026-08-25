@@ -16,6 +16,7 @@
 #include <synch.h>
 #include <machine/trapframe.h>
 #include <initstack.h>
+#include <filetable.h>
 
 /*
  * sys_execv - replace current process image with a new program
@@ -280,7 +281,16 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 
 	child->p_addrspace = child_as;
 
-	// TO-DO : fare la copia della file descriptor table
+	struct fd_table *child_fdtable;
+
+	err = fdtable_clone(curproc->p_fdtable, &child_fdtable);
+	if (err) {
+		proc_destroy(child);
+		kfree(child_tf);
+		return err;
+	}
+	fdtable_destroy(child->p_fdtable);
+	child->p_fdtable = child_fdtable;
 
 	err = thread_fork(
 		curthread->t_name,
