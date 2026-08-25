@@ -33,7 +33,9 @@ sys_read(int fd, userptr_t buf, size_t size, int32_t *retval)
 		return result;
 	}
 
-	result = copyout(kbuf, buf, *retval);
+	if(*retval > 0){
+		result = copyout(kbuf, buf, *retval);
+	}
 	kfree(kbuf);
 	return result;
 }
