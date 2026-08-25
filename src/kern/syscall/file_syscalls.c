@@ -123,3 +123,37 @@ sys___getcwd(userptr_t buf, size_t buflen, int32_t *retval)
 	*retval = buflen - u.uio_resid;
 	return 0;
 }
+
+int
+sys_open(userptr_t path, int flags, mode_t mode, int32_t *retval)
+{
+	char *kpath;
+	int fd;
+	int result;
+
+	kpath = kmalloc(PATH_MAX);
+	if (kpath == NULL) {
+		return ENOMEM;
+	}
+
+	result = copyinstr(path, kpath, PATH_MAX, NULL);
+	if (result) {
+		kfree(kpath);
+		return result;
+	}
+
+	result = fdtable_open(curproc->p_fdtable, kpath, flags, mode, &fd);
+	kfree(kpath);
+	if (result) {
+		return result;
+	}
+
+	*retval = fd;
+	return 0;
+}
+
+int
+sys_close(int fd)
+{
+	return fdtable_close(curproc->p_fdtable, fd);
+}
