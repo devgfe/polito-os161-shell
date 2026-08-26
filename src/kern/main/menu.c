@@ -174,8 +174,18 @@ common_prog(int nargs, char **args)
 	 * Wait for the child process to exit before returning to the menu.
 	 */
 	pid_t pid_to_wait = proc->p_pid;
-	int exit_code = proc_wait(proc);
-	proc_destroy(proc);
+	pid_t pid_waited = 0;
+	int options = 0;
+	int exit_code = 0;
+	int err = 0;
+	err = sys_waitpid(pid_to_wait, (userptr_t)&exit_code, options, &pid_waited);
+	if (err != 0) {
+		panic("sys_waitpid failed on pid %d: %s\n", (int)pid_to_wait, strerror(err));
+	}
+
+	/* sys_waitpid guarantees retval == pid when it returns 0 */
+	KASSERT(pid_waited == pid_to_wait);
+
 	kprintf("Process %d terminated with exit code = %d\n", (int)pid_to_wait, exit_code);
 #endif
 
