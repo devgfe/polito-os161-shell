@@ -779,16 +779,10 @@ thread_startup(void (*entrypoint)(void *data1, unsigned long data2),
 void
 thread_exit(void)
 {
-	struct thread *cur;
+	struct thread *cur = curthread;
 
 #if OPT_SHELL
-	struct proc* p;
-#endif
-
-	cur = curthread;
-
-#if OPT_SHELL
-	p = cur->t_proc;
+	struct proc *p = cur->t_proc;
 #endif
 
 	/*
@@ -797,26 +791,25 @@ thread_exit(void)
 	 */
 	proc_remthread(cur);
 
-#if OPT_SHELL
-	if (p != NULL &&
-		p->p_exited &&
-		p->p_parent < 0 &&
-		p->p_numthreads == 0) {
-
-		pid_release(p->p_pid);
-		proc_destroy(p);
-		p=NULL;
-	}
-#endif
 
 	/* Make sure we *are* detached (move this only if you're sure!) */
 	KASSERT(cur->t_proc == NULL);
+
+	if(p!=NULL){
+		lock_acquire(p->p_waitlock);
+		
+		p->p_exited = true;
+		cv_broadcast(p->p_waitcv, p->p_waitlock);
+		
+		lock_release(p->p_waitlock);
+	}
 
 	/* Check the stack guard band. */
 	thread_checkstack(cur);
 
 	/* Interrupts off on this processor */
-        splhigh();
+    splhigh();
+
 	thread_switch(S_ZOMBIE, NULL, NULL);
 	panic("braaaaaaaiiiiiiiiiiinssssss\n");
 }

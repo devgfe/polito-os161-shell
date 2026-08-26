@@ -201,9 +201,6 @@ void sys__exit(int exitcode)
 	lock_acquire(p->p_waitlock);
 
 	p->p_exitcode = _MKWAIT_EXIT(exitcode);
-	p->p_exited = true;
-
-	cv_broadcast(p->p_waitcv, p->p_waitlock);
 
 	lock_release(p->p_waitlock);
 

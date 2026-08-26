@@ -467,10 +467,13 @@ int proc_wait(struct proc *proc){
 	KASSERT(proc != NULL);
 
 	lock_acquire(proc->p_waitlock);
+
 	while (!proc->p_exited) {
 		cv_wait(proc->p_waitcv, proc->p_waitlock);
 	}
+
 	exitcode = proc->p_exitcode;
+
 	lock_release(proc->p_waitlock);
 
 	return exitcode;
