@@ -121,14 +121,17 @@ struct addrspace *proc_getas(void);
 struct addrspace *proc_setas(struct addrspace *);
 
 #if OPT_SHELL
-/* Return a process structure given a process identifier. */
-struct proc* proc_lookup(pid_t pid);
+	/* Return a process structure given a process identifier. */
+	struct proc* proc_lookup(pid_t pid);
 
-/* Release the pid in the process table. */
-void pid_release(pid_t pid);
+	/* Release the pid in the process table. */
+	void pid_release(pid_t pid);
 
-/* Wait for the given process to exit and return its exit code. */
-int proc_wait(struct proc *proc);
+	/* Wait for the given process to exit and return its exit code. */
+	int proc_wait(struct proc *proc);
+
+	/* Store the exit code and terminate the current thread. */
+	void proc_exit(int exitcode);
 #endif 
 
 #endif /* _PROC_H_ */

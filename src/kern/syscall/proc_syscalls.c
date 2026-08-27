@@ -196,16 +196,7 @@ fail:
 
 void sys__exit(int exitcode)
 {
-	struct proc *p = curproc;
-
-	lock_acquire(p->p_waitlock);
-
-	p->p_exitcode = _MKWAIT_EXIT(exitcode);
-
-	lock_release(p->p_waitlock);
-
-	thread_exit();
-	panic("thread_exit returned\n");
+	proc_exit(_MKWAIT_EXIT(exitcode));
 }
 
 
