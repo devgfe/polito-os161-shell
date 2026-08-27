@@ -1,10 +1,10 @@
-# Makefile for init
+# Makefile for reaper
 
 TOP=../../..
 .include "$(TOP)/mk/os161.config.mk"
 
-PROG=init
-SRCS=init.c
+PROG=reaper
+SRCS=reaper.c
 BINDIR=/sbin
 
 
