@@ -40,6 +40,12 @@
 #include "opt-shell.h"
 
 #if OPT_SHELL
+
+struct proc_node {
+    pid_t pid;
+    struct proc_node *next;
+};
+
 #define NO_PARENT ((pid_t)-1)
 #endif
 
@@ -93,6 +99,9 @@ struct proc {
 
 	/* File descriptor table */
 	struct fd_table *p_fdtable;	/* process file descriptor table */
+
+	/* Children */
+    struct proc_node *p_children;
 #endif
 };
 
@@ -132,6 +141,22 @@ struct addrspace *proc_setas(struct addrspace *);
 
 	/* Store the exit code and terminate the current thread. */
 	void proc_exit(int exitcode);
+
+	/* Add a child process to the childen list of the parent process. */
+	int proc_add_child(struct proc *parent, pid_t pid);
+
+	/* Remove a child process from the childen list of the parent process. */
+	int proc_remove_child(struct proc *parent, pid_t pid);
+
+	/* Remove all children from the childen list of the parent process. */
+	void proc_remove_all_children(struct proc *parent);
+
+	/* Remove a process to the orphan-zombie list. */
+	int proc_add_orphan_zombies(pid_t pid);
+
+	/* Remove all processes from the orphan-zombie list. */
+	void proc_remove_all_orphan_zombies(void);
+	
 #endif 
 
 #endif /* _PROC_H_ */

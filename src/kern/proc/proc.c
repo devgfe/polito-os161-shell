@@ -56,6 +56,7 @@
 #include "kern/errno.h"
 
 #define PID_MAX 32767
+#define MAX_ZOMBIE 1024
 
 /* Assign a unique process identifier (PID) to the kernel process. */
 static void proc_init_kernel_pid(struct proc *proc);
@@ -69,6 +70,9 @@ static int find_valid_pid(void);
 static struct proc *process_table[PID_MAX + 1];
 static struct lock *pid_lock; // lock for pid assignment
 static pid_t next_pid;
+
+static struct proc_node* orphan_zombies = NULL;
+static struct lock *orphan_zombies_lock;
 #endif
 
 /*
@@ -128,7 +132,7 @@ proc_create(const char *name)
 	proc->p_exited = false;
 	proc->p_exitcode = 0;
 
-	proc->p_waitlock = lock_create("waitlock"); // TO DO - bisogna distruggere i lock
+	proc->p_waitlock = lock_create("waitlock");
 	proc->p_waitcv = cv_create("waitcv");
 #endif
 
@@ -224,6 +228,9 @@ void proc_destroy(struct proc *proc)
 	kfree(proc->p_name);
 
 #if OPT_SHELL
+	lock_destroy(proc->p_waitlock);
+	cv_destroy(proc->p_waitcv);
+
 	/* File descriptor table cleanup */
 	if (proc->p_fdtable != NULL)
 	{
@@ -234,11 +241,7 @@ void proc_destroy(struct proc *proc)
 	/* Process ID (PID) release */
 	lock_acquire(pid_lock);
 
-	if (proc->p_pid >= 0)
-	{
-		pid_release(proc->p_pid);
-		proc->p_pid = -1;
-	}
+	pid_release(proc->p_pid);
 
 	lock_release(pid_lock);
 #endif
@@ -264,6 +267,14 @@ void proc_bootstrap(void)
 	{
 		panic("lock_create for pid_lock failed\n");
 	}
+
+	// orphan_zombies_lock initialization
+	orphan_zombies_lock = lock_create("orphan_zombies_lock");
+	if (orphan_zombies_lock == NULL)
+	{
+		panic("lock_create for orphan_zombies_lock failed\n");
+	}
+
 #endif
 }
 
@@ -420,12 +431,20 @@ proc_setas(struct addrspace *newas)
 
 void pid_release(pid_t pid)
 {
+	lock_acquire(pid_lock);
 	process_table[pid] = NULL;
+    lock_release(pid_lock);
 }
 
 struct proc *proc_lookup(pid_t pid)
 {
-	return process_table[pid];
+    struct proc *proc;
+
+    lock_acquire(pid_lock);
+    proc = process_table[pid];
+    lock_release(pid_lock);
+
+    return proc;
 }
 
 static int proc_assign_pid(struct proc *proc)
@@ -510,6 +529,21 @@ void proc_exit(int exitcode)
 {
 	struct proc *p = curproc;
 
+	proc_remove_all_children(p);
+
+	spinlock_acquire(&p->p_lock);
+	pid_t parent = p->p_parent;
+	spinlock_release(&p->p_lock);
+
+	if(parent == NO_PARENT) {
+		int err = proc_add_orphan_zombies(p->p_pid);
+		if(err){
+			proc_destroy(p);
+			thread_exit();
+			panic("thread_exit returned\n");
+		}
+	}
+
 	lock_acquire(p->p_waitlock);
 
 		p->p_exitcode = exitcode;
@@ -521,5 +555,144 @@ void proc_exit(int exitcode)
 	panic("thread_exit returned\n");
 
 }
+
+int proc_add_child(struct proc *parent, pid_t pid)
+{
+	struct proc_node *child;
+
+	child = kmalloc(sizeof(*child));
+	if (child == NULL) {
+		return ENOMEM;
+	}
+
+	child->pid = pid;
+
+	spinlock_acquire(&parent->p_lock);
+
+	child->next = parent->p_children;
+	parent->p_children = child;
+
+	spinlock_release(&parent->p_lock);
+
+	return 0;
+}
+
+int proc_remove_child(struct proc *parent, pid_t pid)
+{
+	struct proc_node *curr;
+	struct proc_node *prev;
+
+	spinlock_acquire(&parent->p_lock);
+
+	prev = NULL;
+	curr = parent->p_children;
+
+	while (curr != NULL) {
+		if (curr->pid == pid) {
+			if (prev == NULL) {
+				parent->p_children = curr->next;
+			} else {
+				prev->next = curr->next;
+			}
+
+			spinlock_release(&parent->p_lock);
+			kfree(curr);
+
+			return 0;
+		}
+
+		prev = curr;
+		curr = curr->next;
+	}
+
+	spinlock_release(&parent->p_lock);
+
+	return ESRCH;
+}
+
+
+void proc_remove_all_children(struct proc *parent){
+	struct proc_node *curr;
+	struct proc_node *next;
+	struct proc *child;
+
+	spinlock_acquire(&parent->p_lock);
+
+	curr = parent->p_children;
+	parent->p_children = NULL;
+
+	while (curr != NULL) {
+		next = curr->next;
+
+		child = process_table[curr->pid];
+
+		if (child != NULL) {
+			spinlock_acquire(&child->p_lock);
+
+			child->p_parent = NO_PARENT;
+
+			spinlock_release(&child->p_lock);
+		}
+
+		kfree(curr);
+		curr = next;
+	}
+
+	spinlock_release(&parent->p_lock);
+}
+
+
+int proc_add_orphan_zombies(pid_t pid)
+{
+	struct proc_node *child;
+
+	child = kmalloc(sizeof(*child));
+	if (child == NULL) {
+		return ENOMEM;
+	}
+
+	child->pid = pid;
+
+	lock_acquire(orphan_zombies_lock);
+
+	child->next = orphan_zombies;
+	orphan_zombies = child;
+
+	lock_release(orphan_zombies_lock);
+
+	return 0;
+}
+
+
+
+void proc_remove_all_orphan_zombies(void){
+	struct proc_node *curr;
+	struct proc_node *next;
+	struct proc* p;
+
+	lock_acquire(orphan_zombies_lock);
+
+	curr = orphan_zombies;
+	orphan_zombies = NULL;
+
+	while (curr != NULL) {
+		next = curr->next;
+
+		lock_acquire(pid_lock);
+		p = process_table[curr->pid];
+		lock_release(pid_lock);
+
+		if(p!=NULL){
+			proc_destroy(p);
+		}
+
+		kfree(curr);
+		curr = next;
+	}
+
+	lock_release(orphan_zombies_lock);
+}
+
+
 
 #endif

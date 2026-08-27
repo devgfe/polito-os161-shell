@@ -41,6 +41,7 @@
 #include <syscall.h>
 #if OPT_SHELL
 	#include <kern/wait.h>
+	#include <proc.h>
 #endif
 /* in exception-*.S */
 extern __DEAD void asm_usermode(struct trapframe *tf);

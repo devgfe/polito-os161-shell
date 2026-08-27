@@ -216,8 +216,12 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 	if (child == NULL) {
 		return ESRCH;
 	}
+	
+	spinlock_acquire(&child->p_lock);
+	pid_t parent = child->p_parent;
+	spinlock_release(&child->p_lock);
 
-	if (child->p_parent != curproc->p_pid) {
+	if (parent != curproc->p_pid) {
 		return ECHILD;
 	}
 
@@ -280,6 +284,14 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 	fdtable_destroy(child->p_fdtable);
 	child->p_fdtable = child_fdtable;
 
+	/* Add the process to the children list */
+	err = proc_add_child(curproc, child->p_pid); 
+	if (err) {
+		proc_destroy(child);
+		kfree(child_tf);
+		return err;
+	}
+
 	err = thread_fork(
 		curthread->t_name,
 		child,
@@ -289,10 +301,13 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 	);
 
 	if (err) {
+		proc_remove_child(curproc, child->p_pid);
 		proc_destroy(child);
 		kfree(child_tf);
 		return err;
 	}
+
+	
 
 	*retval = child->p_pid;
 	return 0;
