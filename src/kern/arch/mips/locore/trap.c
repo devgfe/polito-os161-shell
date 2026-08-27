@@ -43,6 +43,7 @@
 
 #if OPT_SHELL
 #include <kern/wait.h>
+#include <proc.h>
 #endif
 /* in exception-*.S */
 extern __DEAD void asm_usermode(struct trapframe *tf);
@@ -119,7 +120,7 @@ kill_curthread(vaddr_t epc, unsigned code, vaddr_t vaddr)
 		code, sig, trapcodenames[code], epc, vaddr);
 
 #if OPT_SHELL
-	proc_exit(_MKWAIT_EXIT(sig));
+	proc_exit(_MKWAIT_SIG(sig));
 #endif
 
 	panic("I don't know how to handle this\n");

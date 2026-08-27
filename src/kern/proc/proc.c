@@ -506,16 +506,17 @@ void proc_exit(int exitcode)
 {
 	struct proc *p = curproc;
 
+	proc_remthread(curthread);
+
 	lock_acquire(p->p_waitlock);
-
 	p->p_exitcode = exitcode;
-
+	p->p_exited = true;
+	cv_signal(p->p_waitcv, p->p_waitlock);
 	lock_release(p->p_waitlock);
 
 	thread_exit();
 	
 	panic("thread_exit returned\n");
-
 }
 
 #endif
