@@ -66,7 +66,6 @@ static int proc_assign_pid(struct proc *proc);
 /* Returns an available PID, reusing a free one if the PID range has been exhausted. */
 static int find_valid_pid(void);
 
-
 static struct proc *process_table[PID_MAX + 1];
 static struct lock *pid_lock; // lock for pid assignment
 static pid_t next_pid;
@@ -110,13 +109,17 @@ proc_create(const char *name)
 	proc->p_fdtable = NULL;
 
 	/* Process ID (PID) assignment */
-	if(kproc != NULL){
+	if (kproc != NULL)
+	{
 		int err = proc_assign_pid(proc);
-		if (err) {
+		if (err)
+		{
 			proc_destroy(proc);
 			return NULL;
 		}
-	}else{
+	}
+	else
+	{
 		proc_init_kernel_pid(proc); // kernel process initialitation
 	}
 
@@ -125,7 +128,7 @@ proc_create(const char *name)
 	proc->p_exitcode = 0;
 
 	proc->p_waitlock = lock_create("waitlock"); // TO DO - bisogna distruggere i lock
-	proc->p_waitcv   = cv_create("waitcv");
+	proc->p_waitcv = cv_create("waitcv");
 #endif
 
 	return proc;
@@ -218,7 +221,8 @@ proc_destroy(struct proc *proc)
 
 #if OPT_SHELL
 	/* File descriptor table cleanup */
-	if (proc->p_fdtable != NULL) {
+	if (proc->p_fdtable != NULL)
+	{
 		fdtable_destroy(proc->p_fdtable);
 		proc->p_fdtable = NULL;
 	}
@@ -226,7 +230,8 @@ proc_destroy(struct proc *proc)
 	/* Process ID (PID) release */
 	lock_acquire(pid_lock);
 
-	if(proc->p_pid >= 0){
+	if (proc->p_pid >= 0)
+	{
 		pid_release(proc->p_pid);
 		proc->p_pid = -1;
 	}
@@ -251,7 +256,8 @@ proc_bootstrap(void)
 #if OPT_SHELL
 	// pid_lock initialization
 	pid_lock = lock_create("pid_lock");
-	if (pid_lock == NULL) {
+	if (pid_lock == NULL)
+	{
 		panic("lock_create for pid_lock failed\n");
 	}
 #endif
@@ -298,7 +304,8 @@ proc_create_runprogram(const char *name)
 
 	/* Create the fd table for the new process and initialize the standard descriptors */
 	newproc->p_fdtable = fdtable_create_standard();
-	if (newproc->p_fdtable == NULL) {
+	if (newproc->p_fdtable == NULL)
+	{
 		proc_destroy(newproc);
 		return NULL;
 	}
@@ -407,19 +414,23 @@ proc_setas(struct addrspace *newas)
 
 #if OPT_SHELL
 
-void pid_release(pid_t pid){
+void pid_release(pid_t pid)
+{
 	process_table[pid] = NULL;
 }
 
-struct proc* proc_lookup(pid_t pid){
+struct proc *proc_lookup(pid_t pid)
+{
 	return process_table[pid];
 }
 
-static int proc_assign_pid(struct proc *proc){
+static int proc_assign_pid(struct proc *proc)
+{
 	lock_acquire(pid_lock);
 
 	int pid = find_valid_pid();
-	if (pid < 0) {
+	if (pid < 0)
+	{
 		lock_release(pid_lock);
 		return ENPROC;
 	}
@@ -432,20 +443,24 @@ static int proc_assign_pid(struct proc *proc){
 
 	lock_release(pid_lock);
 	return 0;
-			
 }
 
-static void proc_init_kernel_pid(struct proc *proc){
+static void proc_init_kernel_pid(struct proc *proc)
+{
 	proc->p_pid = 0;
 	process_table[0] = proc;
-	next_pid=1;
+	next_pid = 1;
 }
 
-static int find_valid_pid(void){
-	if(next_pid <= PID_MAX) return next_pid;
+static int find_valid_pid(void)
+{
+	if (next_pid <= PID_MAX)
+		return next_pid;
 
-	for(int i = 1; i <= PID_MAX ; i++){
-		if(process_table[i] == NULL) return i;
+	for (int i = 1; i <= PID_MAX; i++)
+	{
+		if (process_table[i] == NULL)
+			return i;
 	}
 
 	return -1;
@@ -461,19 +476,46 @@ static int find_valid_pid(void){
  * Note: the caller is responsible for destroying the process
  * structure afterwards with proc_destroy().
  */
-int proc_wait(struct proc *proc){
+int proc_wait(struct proc *proc)
+{
 	int exitcode;
 
 	KASSERT(proc != NULL);
 
 	lock_acquire(proc->p_waitlock);
-	while (!proc->p_exited) {
+
+	while (!proc->p_exited)
+	{
 		cv_wait(proc->p_waitcv, proc->p_waitlock);
 	}
+
 	exitcode = proc->p_exitcode;
+
 	lock_release(proc->p_waitlock);
 
 	return exitcode;
+}
+
+/*
+ * Store the process exit code before terminating the current thread.
+ *
+ * The wait lock ensures that the exit code is written safely and can be read consistently by a waiting parent process.
+ */
+
+void proc_exit(int exitcode)
+{
+	struct proc *p = curproc;
+
+	lock_acquire(p->p_waitlock);
+
+	p->p_exitcode = exitcode;
+
+	lock_release(p->p_waitlock);
+
+	thread_exit();
+	
+	panic("thread_exit returned\n");
+
 }
 
 #endif

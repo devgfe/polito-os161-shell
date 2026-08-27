@@ -41,14 +41,12 @@
 
 #if OPT_SHELL
 #define NO_PARENT ((pid_t)-1)
+struct fd_table;
 #endif
 
 struct addrspace;
 struct thread;
 struct vnode;
-#if OPT_SHELL
-struct fd_table;
-#endif
 
 /*
  * Process structure.
@@ -129,6 +127,9 @@ void pid_release(pid_t pid);
 
 /* Wait for the given process to exit and return its exit code. */
 int proc_wait(struct proc *proc);
+
+/* Store the exit code and terminate the current thread. */
+void proc_exit(int exitcode);
 #endif 
 
 #endif /* _PROC_H_ */
