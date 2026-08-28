@@ -156,6 +156,10 @@ The following tests validate the implemented behaviour and relevant error paths.
 
 `waitpidtest` forks a child that calls `_exit` with a known status, confirms that `waitpid` returns the child PID and correctly reports the exit status. Verifies that reaping the same child again returns `ESRCH`, that a NULL status pointer is accepted, that an invalid status pointer returns `EFAULT`, that unsupported `options` flags return `EINVAL`, and that calling `waitpid` on the calling process's own PID returns `ECHILD`.
 
+### `zombietest`
+
+`zombietest` verifies zombie and orphan reaping semantics in three scenarios: a child that exits before the parent calls `waitpid` (zombie case), a child that exits before a parent that never waits, and a parent that exits before its child. It checks that `waitpid` still returns the correct PID and exit status for the zombie case, and that orphaned children are eventually reaped by the kernel without leaving stale process state.
+
 ## References
 
 - [OS/161 Manual](https://people.ece.ubc.ca/os161/man/)
