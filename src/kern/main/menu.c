@@ -132,14 +132,17 @@ cmd_progthread(void *ptr, unsigned long nargs)
 /*
  * Common code for cmd_prog and cmd_shell.
  *
- * Note that this does not wait for the subprogram to finish, but
- * returns immediately to the menu. This is usually not what you want,
- * so you should have it call your system-calls-assignment waitpid
- * code after forking.
+ * With OPT_SHELL, this also waits for the subprogram to finish by
+ * calling the system-calls-assignment waitpid code (sys_waitpid)
+ * after forking, instead of returning immediately to the menu.
+ * Since the subprogram is waited for and receives its arguments,
+ * the "args" array and strings are no longer shared with the menu
+ * input code and the race condition does not arise.
  *
- * Also note that because the subprogram's thread uses the "args"
- * array and strings, until you do this a race condition exists
- * between that code and the menu input code.
+ * Without OPT_SHELL, this returns immediately to the menu without
+ * waiting for the subprogram; in that case the subprogram's thread
+ * uses the "args" array and strings and a race condition with the
+ * menu input code still exists.
  */
 static
 int
@@ -165,8 +168,10 @@ common_prog(int nargs, char **args)
 	}
 
 	/*
-	 * The new process will be destroyed when the program exits...
-	 * once you write the code for handling that.
+	 * The new process is destroyed when the program exits.
+	 * With OPT_SHELL this is handled by sys__exit (called by the
+	 * program on exit, or by cmd_progthread on error) together with
+	 * the sys_waitpid below.
 	 */
 
 #if OPT_SHELL
@@ -176,6 +181,7 @@ common_prog(int nargs, char **args)
 	pid_t pid_to_wait = proc->p_pid;
 	int exit_code = proc_wait(proc);
 	proc_destroy(proc);
+
 	kprintf("Process %d terminated with exit code = %d\n", (int)pid_to_wait, exit_code);
 #endif
 

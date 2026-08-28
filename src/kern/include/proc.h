@@ -47,14 +47,12 @@ struct proc_node {
 };
 
 #define NO_PARENT ((pid_t)-1)
+struct fd_table;
 #endif
 
 struct addrspace;
 struct thread;
 struct vnode;
-#if OPT_SHELL
-struct fd_table;
-#endif
 
 /*
  * Process structure.
@@ -130,17 +128,17 @@ struct addrspace *proc_getas(void);
 struct addrspace *proc_setas(struct addrspace *);
 
 #if OPT_SHELL
-	/* Return a process structure given a process identifier. */
-	struct proc* proc_lookup(pid_t pid);
+/* Return a process structure given a process identifier. */
+struct proc* proc_lookup(pid_t pid);
 
-	/* Release the pid in the process table. */
-	void pid_release(pid_t pid);
+/* Release the pid in the process table. */
+void pid_release(pid_t pid);
 
-	/* Wait for the given process to exit and return its exit code. */
-	int proc_wait(struct proc *proc);
+/* Wait for the given process to exit and return its exit code. */
+int proc_wait(struct proc *proc);
 
-	/* Store the exit code and terminate the current thread. */
-	void proc_exit(int exitcode);
+/* Store the exit code and terminate the current thread. */
+void proc_exit(int exitcode);
 
 	/* Add a child process to the childen list of the parent process. */
 	int proc_add_child(struct proc *parent, pid_t pid);

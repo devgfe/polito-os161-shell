@@ -227,9 +227,11 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 
 	int code = proc_wait(child);
 
-	int err = copyout(&code, status, sizeof(int));
-	if (err) {
-		return err;
+	if (status != NULL) {
+		int err = copyout(&code, status, sizeof(int));
+		if (err) {
+			return err;
+		}
 	}
 
 	proc_destroy(child);
