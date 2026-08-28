@@ -100,7 +100,6 @@ struct proc {
 
 	/* Children */
     struct proc_node *p_children;
-
 #endif
 };
 
@@ -149,7 +148,6 @@ int proc_remove_child(struct proc *parent, pid_t pid);
 
 /* Remove all children from the childen list of the parent process. */
 void proc_remove_all_children(struct proc *parent);
-
 #endif 
 
 #endif /* _PROC_H_ */
