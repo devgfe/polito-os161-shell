@@ -41,6 +41,12 @@
 
 #if OPT_SHELL
 #define NO_PARENT ((pid_t)-1)
+
+struct proc_node {
+    pid_t pid;
+    struct proc_node *next;
+};
+
 struct fd_table;
 #endif
 
@@ -91,6 +97,10 @@ struct proc {
 
 	/* File descriptor table */
 	struct fd_table *p_fdtable;	/* process file descriptor table */
+
+	/* Children */
+    struct proc_node *p_children;
+
 #endif
 };
 
@@ -130,6 +140,16 @@ int proc_wait(struct proc *proc);
 
 /* Store the exit code and terminate the current thread. */
 void proc_exit(int exitcode);
+
+/* Add a child process to the childen list of the parent process. */
+int proc_add_child(struct proc *parent, pid_t pid);
+
+/* Remove a child process from the childen list of the parent process. */
+int proc_remove_child(struct proc *parent, pid_t pid);
+
+/* Remove all children from the childen list of the parent process. */
+void proc_remove_all_children(struct proc *parent);
+
 #endif 
 
 #endif /* _PROC_H_ */

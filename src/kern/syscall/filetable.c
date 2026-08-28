@@ -484,8 +484,15 @@ fdtable_clone(struct fd_table *source, struct fd_table **copy_ret)
 	for (i = 0; i < OPEN_MAX; i++) {
 		copy->ft_entries[i] = NULL;
 	}
+	copy->ft_cwd = NULL;
 
 	lock_acquire(source->ft_lock);
+
+	copy->ft_cwd = source->ft_cwd;
+	if (copy->ft_cwd != NULL) {
+		VOP_INCREF(copy->ft_cwd);
+	}
+
 	for (i = 0; i < OPEN_MAX; i++) {
 		of = source->ft_entries[i];
 		if (of == NULL) {

@@ -24,6 +24,7 @@ TESTS = [
 	"readtest",
 	"waitpidtest",
 	"writetest",
+	"zombietest",
 ]
 
 

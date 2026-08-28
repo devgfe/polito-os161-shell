@@ -126,8 +126,9 @@ proc_create(const char *name)
 	proc->p_parent = -1;
 	proc->p_exited = false;
 	proc->p_exitcode = 0;
+	proc->p_children = NULL;
 
-	proc->p_waitlock = lock_create("waitlock"); // TO DO - bisogna distruggere i lock
+	proc->p_waitlock = lock_create("waitlock");
 	proc->p_waitcv = cv_create("waitcv");
 #endif
 
@@ -220,6 +221,9 @@ proc_destroy(struct proc *proc)
 	kfree(proc->p_name);
 
 #if OPT_SHELL
+	lock_destroy(proc->p_waitlock);
+	cv_destroy(proc->p_waitcv);
+
 	/* File descriptor table cleanup */
 	if (proc->p_fdtable != NULL)
 	{
@@ -228,15 +232,7 @@ proc_destroy(struct proc *proc)
 	}
 
 	/* Process ID (PID) release */
-	lock_acquire(pid_lock);
-
-	if (proc->p_pid >= 0)
-	{
-		pid_release(proc->p_pid);
-		proc->p_pid = -1;
-	}
-
-	lock_release(pid_lock);
+	pid_release(proc->p_pid);
 #endif
 
 	kfree(proc);
@@ -416,12 +412,22 @@ proc_setas(struct addrspace *newas)
 
 void pid_release(pid_t pid)
 {
+	lock_acquire(pid_lock);
 	process_table[pid] = NULL;
+    lock_release(pid_lock);
 }
 
 struct proc *proc_lookup(pid_t pid)
 {
-	return process_table[pid];
+	if (pid < 0 || pid > PID_MAX) return NULL;
+
+	struct proc *proc;
+
+    lock_acquire(pid_lock);
+    proc = process_table[pid];
+    lock_release(pid_lock);
+
+    return proc;
 }
 
 static int proc_assign_pid(struct proc *proc)
@@ -505,18 +511,136 @@ int proc_wait(struct proc *proc)
 void proc_exit(int exitcode)
 {
 	struct proc *p = curproc;
+	bool orphan;
 
 	proc_remthread(curthread);
 
+	proc_remove_all_children(p);
+
+	/* Under p_lock, the exited flag and parent pointer are updated
+	 * atomically, so exactly one of this exit path and the parent's
+	 * proc_remove_all_children() reaps the process. */
 	lock_acquire(p->p_waitlock);
+	spinlock_acquire(&p->p_lock);
 	p->p_exitcode = exitcode;
 	p->p_exited = true;
+	orphan = (p->p_parent == NO_PARENT);
+	spinlock_release(&p->p_lock);
 	cv_signal(p->p_waitcv, p->p_waitlock);
 	lock_release(p->p_waitlock);
+
+	if (orphan) {
+		/*
+		 * Parent is dead: nobody will ever wait for us, so we can
+		 * destroy ourselves immediately.
+		 */
+		kprintf("Process %d terminated with exit code = %d\n", (int)p->p_pid, exitcode);
+		proc_destroy(p);
+	}
 
 	thread_exit();
 	
 	panic("thread_exit returned\n");
+}
+
+int proc_add_child(struct proc *parent, pid_t pid)
+{
+	struct proc_node *child;
+
+	child = kmalloc(sizeof(*child));
+	if (child == NULL) {
+		return ENOMEM;
+	}
+
+	child->pid = pid;
+
+	spinlock_acquire(&parent->p_lock);
+
+	child->next = parent->p_children;
+	parent->p_children = child;
+
+	spinlock_release(&parent->p_lock);
+
+	return 0;
+}
+
+int proc_remove_child(struct proc *parent, pid_t pid)
+{
+	struct proc_node *curr;
+	struct proc_node *prev;
+
+	spinlock_acquire(&parent->p_lock);
+
+	prev = NULL;
+	curr = parent->p_children;
+
+	while (curr != NULL) {
+		if (curr->pid == pid) {
+			if (prev == NULL) {
+				parent->p_children = curr->next;
+			} else {
+				prev->next = curr->next;
+			}
+
+			spinlock_release(&parent->p_lock);
+			kfree(curr);
+
+			return 0;
+		}
+
+		prev = curr;
+		curr = curr->next;
+	}
+
+	spinlock_release(&parent->p_lock);
+
+	return ESRCH;
+}
+
+void proc_remove_all_children(struct proc *parent){
+	struct proc_node *curr;
+	struct proc_node *next;
+	struct proc *child;
+	bool reap;
+
+	spinlock_acquire(&parent->p_lock);
+
+	curr = parent->p_children;
+	parent->p_children = NULL;
+
+	spinlock_release(&parent->p_lock);
+
+	while (curr != NULL) {
+		next = curr->next;
+
+		child = proc_lookup(curr->pid);
+
+		reap = false;
+
+		if (child != NULL) {
+			spinlock_acquire(&child->p_lock);
+
+			child->p_parent = NO_PARENT;
+
+			/*
+			 * If the child already exited, reap it immediately.
+			 */
+			reap = child->p_exited;
+
+			spinlock_release(&child->p_lock);
+		}
+
+		if (reap) {
+			pid_t pid_to_wait = curr->pid;
+			int exitcode = proc_wait(child);
+			proc_destroy(child);
+
+			kprintf("Process %d terminated with exit code = %d\n", (int)pid_to_wait, exitcode);
+		}
+
+		kfree(curr);
+		curr = next;
+	}
 }
 
 #endif
