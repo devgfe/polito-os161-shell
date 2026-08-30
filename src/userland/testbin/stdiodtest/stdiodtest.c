@@ -41,7 +41,7 @@ main(void)
 	char stderr_message[] = "stdiodtest: write to stderr (fd 2) succeeded\n";
 	char input_prompt[] = "stdiodtest: type one character for stdin (fd 0): ";
 	char echo_prefix[] = "stdiodtest: stdin returned: ";
-	char success_message[] = "\nstdiodtest: PASS\n";
+	char success_message[] = "\n[PASS] stdiodtest\n";
 
 	character = '\0';
 

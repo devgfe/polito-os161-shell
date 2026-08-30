@@ -392,6 +392,7 @@ file      main/menu.c
 #
 
 defoption shell
+defoption procdebug
 defoption synch
 
 optfile shell syscall/proc_syscalls.c

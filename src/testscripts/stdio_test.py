@@ -38,7 +38,7 @@ def main():
 	proc.send("q\r")
 	proc.expect_exact([pexpect.EOF, pexpect.TIMEOUT])
 
-	print("\nDone. Check the 'stdiodtest: PASS' / 'stdiodtest: FAIL' line above.")
+	print("\nDone. Check the '[TEST-OK] stdiodtest' / '[TEST-FAIL] stdiodtest' line above.")
 	return 0
 
 

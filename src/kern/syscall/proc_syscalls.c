@@ -17,6 +17,7 @@
 #include <machine/trapframe.h>
 #include <initstack.h>
 #include <filetable.h>
+#include "opt-procdebug.h"
 
 /*
  * sys_execv - replace current process image with a new program
@@ -238,6 +239,12 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 	(void)proc_remove_child(curproc, pid);
 
 	*retval = pid;
+
+#if OPT_PROCDEBUG
+	kprintf("Process %d collected process %d via waitpid (process parent pid=%d)\n",
+			(int)curproc->p_pid, (int)pid, (int)parent);
+#endif
+
 	return 0;
 }
 

@@ -46,8 +46,10 @@
 #include "opt-sfs.h"
 #include "opt-net.h"
 #include "opt-shell.h"
+#include "opt-procdebug.h"
 
 #if OPT_SHELL
+#include <kern/wait.h>
 #include <current.h>
 #endif
 
@@ -178,11 +180,19 @@ common_prog(int nargs, char **args)
 	/*
 	 * Wait for the child process to exit before returning to the menu.
 	 */
-	pid_t pid_to_wait = proc->p_pid;
-	int exit_code = proc_wait(proc);
+#if OPT_PROCDEBUG
+	pid_t pid = proc->p_pid;
+	pid_t parent = proc->p_parent;
+#endif
+	
+	(void)proc_wait(proc);
 	proc_destroy(proc);
 
-	kprintf("Process %d terminated with exit code = %d\n", (int)pid_to_wait, exit_code);
+#if OPT_PROCDEBUG
+	kprintf("Process %d collected process %d via menu wait (process parent pid=%d)\n",
+	        (int)curproc->p_pid, (int)pid, (int)parent);
+#endif
+
 #endif
 
 	return 0;

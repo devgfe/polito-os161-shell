@@ -19,6 +19,17 @@
 
 static
 void
+spin_delay(volatile unsigned long count)
+{
+	volatile unsigned long i;
+
+	for (i = 0; i < count; i++) {
+		/* Intentional busy wait for test ordering. */
+	}
+}
+
+static
+int
 test_orphan_parent_first(void)
 {
 	pid_t child;
@@ -26,7 +37,7 @@ test_orphan_parent_first(void)
 	child = fork();
 	if (child < 0) {
 		fail_errno("orphan(parent first): fork failed", 0, errno);
-		return;
+		return 1;
 	}
 
 	if (child == 0) {
@@ -34,16 +45,16 @@ test_orphan_parent_first(void)
 		 * Parent will exit first. We are the child and we busy-wait
 		 * briefly so the parent becomes an orphan *before* us.
 		 */
-		for (long i = 0; i < 100000; i++);
+		spin_delay(2000000);
 		_exit(7);
 	}
 
-	/* Parent return immediately without waiting. */
-	pass("orphan(parent first): parent returned without waiting (kernel reaps child)");
+	/* Parent returns immediately without waiting. */
+	return 0;
 }
 
 static
-void
+int
 test_orphan_child_first(void)
 {
 	pid_t child;
@@ -51,7 +62,7 @@ test_orphan_child_first(void)
 	child = fork();
 	if (child < 0) {
 		fail_errno("orphan(child first): fork failed", 0, errno);
-		return;
+		return 1;
 	}
 
 	if (child == 0) {
@@ -60,13 +71,13 @@ test_orphan_child_first(void)
 	}
 
 	/* Parent busy-waits so child exits first, then parent exits. */
-	for (long i = 0; i < 100000; i++);
+	spin_delay(2000000);
 	/* Deliberately no waitpid. */
-	pass("orphan(child first): parent returned without waiting (kernel reaps child)");
+	return 0;
 }
 
 static
-void
+int
 test_zombie(void)
 {
 	pid_t child;
@@ -76,7 +87,7 @@ test_zombie(void)
 	child = fork();
 	if (child < 0) {
 		fail_errno("zombie: fork failed", 0, errno);
-		return;
+		return 1;
 	}
 
 	if (child == 0) {
@@ -84,31 +95,70 @@ test_zombie(void)
 	}
 
 	/* Busy-wait so child exits before we call waitpid. */
-	for (long i = 0; i < 100000; i++);
+	spin_delay(2000000);
 
 	result = waitpid(child, &status, 0);
+	if (result < 0) {
+		fail_errno("zombie: waitpid failed", 0, errno);
+		return 1;
+	}
 	if (result != child) {
 		fail("zombie: waitpid returns child pid");
+		return 1;
 	}
-	else if (WIFEXITED(status) && WEXITSTATUS(status) == 42) {
-		pass("zombie: waitpid reaps a child that already exited");
+
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 42) {
+		return 0;
 	}
 	else {
 		fail("zombie: waitpid returns correct exit status");
+		return 1;
+	}
+}
+
+static
+void
+run_test_in_wrapper(const char *name, int (*testfn)(void))
+{
+	pid_t wrapper;
+	pid_t result;
+	int status;
+
+	wrapper = fork();
+	if (wrapper < 0) {
+		fail_errno("wrapper: fork failed", 0, errno);
+		return;
+	}
+
+	if (wrapper == 0) {
+		/* Wrapper */
+		_exit(testfn() == 0 ? 0 : 1);
+	}
+
+	/* Main */
+	result = waitpid(wrapper, &status, 0);
+	if (result < 0) {
+		fail_errno("wrapper: waitpid failed", 0, errno);
+		return;
+	}
+	if (result != wrapper) {
+		fail("wrapper: waitpid returns wrapper pid");
+		return;
+	}
+
+	if (!(WIFEXITED(status) && WEXITSTATUS(status) == 0)) {
+		fail(name);
 	}
 }
 
 int
 main(void)
 {
-	/* Scenario 1: zombie reaping (child already exited, parent waits) */
-	test_zombie();
+	printf("[INFO] For detailed fork/waitpid/exit traces, enable kernel option procdebug.\n");
 
-    /* Scenario 2: child exits before parent (parent sleeps briefly) */
-	test_orphan_child_first();
-
-    /* Scenario 3: parent exits before child (child sleeps briefly) */
-	test_orphan_parent_first();
+	run_test_in_wrapper("zombie", test_zombie);
+	run_test_in_wrapper("orphan(child first)", test_orphan_child_first);
+	run_test_in_wrapper("orphan(parent first)", test_orphan_parent_first);
 
 	return finish_test("zombietest");
 }

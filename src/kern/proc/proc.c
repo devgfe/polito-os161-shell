@@ -49,9 +49,11 @@
 #include <addrspace.h>
 #include <vnode.h>
 #include "opt-shell.h"
+#include "opt-procdebug.h"
 
 #if OPT_SHELL
 #include <filetable.h>
+#include <kern/wait.h>
 #include "synch.h"
 #include "kern/errno.h"
 
@@ -305,6 +307,12 @@ proc_create_runprogram(const char *name)
 		proc_destroy(newproc);
 		return NULL;
 	}
+
+#if OPT_PROCDEBUG
+	kprintf("Process %d created child process %d\n",
+	        (int)newproc->p_parent, (int)newproc->p_pid);
+#endif
+
 #endif
 
 	return newproc;
@@ -529,12 +537,16 @@ void proc_exit(int exitcode)
 	cv_signal(p->p_waitcv, p->p_waitlock);
 	lock_release(p->p_waitlock);
 
+#if OPT_PROCDEBUG
+	kprintf("Process %d terminated with status coded=%d, pure=%d\n",
+	        (int)p->p_pid, exitcode, WEXITSTATUS(exitcode));
+#endif
+
 	if (orphan) {
 		/*
 		 * Parent is dead: nobody will ever wait for us, so we can
 		 * destroy ourselves immediately.
 		 */
-		kprintf("Process %d terminated with exit code = %d\n", (int)p->p_pid, exitcode);
 		proc_destroy(p);
 	}
 
@@ -602,6 +614,10 @@ void proc_remove_all_children(struct proc *parent){
 	struct proc_node *next;
 	struct proc *child;
 	bool reap;
+#if OPT_PROCDEBUG
+	pid_t child_pid;
+	pid_t child_parent_pid;
+#endif
 
 	spinlock_acquire(&parent->p_lock);
 
@@ -620,6 +636,11 @@ void proc_remove_all_children(struct proc *parent){
 		if (child != NULL) {
 			spinlock_acquire(&child->p_lock);
 
+#if OPT_PROCDEBUG
+			child_pid = child->p_pid;
+			child_parent_pid = child->p_parent;
+#endif
+
 			child->p_parent = NO_PARENT;
 
 			/*
@@ -631,11 +652,13 @@ void proc_remove_all_children(struct proc *parent){
 		}
 
 		if (reap) {
-			pid_t pid_to_wait = curr->pid;
-			int exitcode = proc_wait(child);
+			(void)proc_wait(child);
 			proc_destroy(child);
 
-			kprintf("Process %d terminated with exit code = %d\n", (int)pid_to_wait, exitcode);
+#if OPT_PROCDEBUG
+			kprintf("Process %d collected orphan process %d during parent exit (process parent pid=%d)\n",
+					(int)parent->p_pid, (int)child_pid, (int)child_parent_pid);
+#endif
 		}
 
 		kfree(curr);

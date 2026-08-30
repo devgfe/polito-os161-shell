@@ -28,14 +28,14 @@ TESTHELPER
 void
 pass(const char *description)
 {
-	printf("PASS: %s\n", description);
+	printf("[PASS] %s\n", description);
 }
 
 TESTHELPER
 void
 fail(const char *description)
 {
-	printf("FAIL: %s\n", description);
+	printf("[FAIL] %s\n", description);
 	record_failure();
 }
 
@@ -43,7 +43,7 @@ TESTHELPER
 void
 fail_errno(const char *description, int expected_errno, int actual_errno)
 {
-	printf("FAIL: %s (expected errno %d, got %d)\n", description, expected_errno, actual_errno);
+	printf("[FAIL] %s (expected errno %d, got %d)\n", description, expected_errno, actual_errno);
 	record_failure();
 }
 
@@ -66,12 +66,12 @@ finish_test(const char *test_name)
 	const char *separator = "========================================\n";
 
 	if (failures == 0) {
-		printf("%s: PASS\n", test_name);
+		printf("[TEST-OK] %s\n", test_name);
 		printf("%s", separator);
 		return 0;
 	}
 
-	printf("%s: FAIL (%d checks failed)\n", test_name, failures);
+	printf("[TEST-FAIL] %s (%d checks failed)\n", test_name, failures);
 	printf("%s", separator);
 	return 1;
 }

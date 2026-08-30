@@ -38,7 +38,7 @@ def main():
 		print("\nRUN ABORTED: %s" % msg)
 		return 1
 
-	print("\nRun completed. Check the '<name>: PASS' / '<name>: FAIL' lines above.")
+	print("\nRun completed. Check the '[TEST-OK] <name>' / '[TEST-FAIL] <name>' lines above.")
 	return 0
 
 

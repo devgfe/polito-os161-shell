@@ -35,11 +35,11 @@ main(void)
 	}
 	if (result == (int)(sizeof(expected_initial) - 1) &&
 	    memcmp(buffer, expected_initial, sizeof(expected_initial) - 1) == 0) {
-		printf("INFO: initial cwd is \"%s\" (length %d)\n", buffer, result);
+		printf("[INFO] initial cwd is \"%s\" (length %d)\n", buffer, result);
 		pass("__getcwd returns bootfs root emu0:");
 	}
 	else {
-		printf("FAIL: __getcwd returns bootfs root emu0: (got %s, length %d, errno %d)\n",
+		printf("[FAIL] __getcwd returns bootfs root emu0: (got %s, length %d, errno %d)\n",
 		       result >= 0 ? buffer : "<unavailable>", result, errno);
 		record_failure();
 	}
@@ -57,11 +57,11 @@ main(void)
 	}
 	if (result == (int)(sizeof(expected_directory) - 1) &&
 	    memcmp(buffer, expected_directory, sizeof(expected_directory) - 1) == 0) {
-		printf("INFO: after chdir(\"/testbin\"), cwd is \"%s\"\n", buffer);
+		printf("[INFO] after chdir(\"/testbin\"), cwd is \"%s\"\n", buffer);
 		pass("__getcwd returns emu0:/testbin");
 	}
 	else {
-		printf("FAIL: __getcwd returns emu0:/testbin (got %s, length %d, errno %d)\n",
+		printf("[FAIL] __getcwd returns emu0:/testbin (got %s, length %d, errno %d)\n",
 		       result >= 0 ? buffer : "<unavailable>", result, errno);
 		record_failure();
 	}
