@@ -36,6 +36,7 @@
  */
 #include <fs.h>
 #include <vnode.h>
+#include "opt-shell.h"
 
 /*
  * Our structures
@@ -45,6 +46,9 @@ struct emufs_vnode {
 	struct vnode ev_v;		/* abstract vnode structure */
 	struct emu_softc *ev_emu;	/* device */
 	uint32_t ev_handle;		/* file handle */
+#if OPT_SHELL
+	char *ev_path;			/* path relative to fs root ("" for root) */
+#endif
 };
 
 struct emufs_fs {

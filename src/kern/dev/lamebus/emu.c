@@ -54,6 +54,7 @@
 #include <vfs.h>
 #include <emufs.h>
 #include "autoconf.h"
+#include "opt-shell.h"
 
 /* Register offsets */
 #define REG_HANDLE    0
@@ -412,6 +413,9 @@ emu_trunc(struct emu_softc *sc, uint32_t handle, off_t len)
 // at bottom of this section
 
 static int emufs_loadvnode(struct emufs_fs *ef, uint32_t handle, int isdir,
+#if OPT_SHELL
+			   const char *path,
+#endif
 			   struct emufs_vnode **ret);
 
 /*
@@ -529,6 +533,9 @@ emufs_reclaim(struct vnode *v)
 	lock_release(ef->ef_emu->e_lock);
 	vfs_biglock_release();
 
+#if OPT_SHELL
+	kfree(ev->ev_path);
+#endif
 	kfree(ev);
 	return 0;
 }
@@ -739,6 +746,11 @@ emufs_creat(struct vnode *dir, const char *name, bool excl, mode_t mode,
 	struct emufs_vnode *ev = dir->vn_data;
 	struct emufs_fs *ef = dir->vn_fs->fs_data;
 	struct emufs_vnode *newguy;
+#if OPT_SHELL
+	char *childpath;
+	size_t dirlen;
+	size_t namelen;
+#endif
 	uint32_t handle;
 	int result;
 	int isdir;
@@ -749,7 +761,40 @@ emufs_creat(struct vnode *dir, const char *name, bool excl, mode_t mode,
 		return result;
 	}
 
+#if OPT_SHELL
+	childpath = kmalloc(EMU_MAXIO);
+	if (childpath == NULL) {
+		emu_close(ev->ev_emu, handle);
+		return ENOMEM;
+	}
+
+	dirlen = strlen(ev->ev_path);
+	namelen = strlen(name);
+	if (dirlen == 0) {
+		if (1 + namelen + 1 > EMU_MAXIO) {
+			kfree(childpath);
+			emu_close(ev->ev_emu, handle);
+			return ENAMETOOLONG;
+		}
+		strcpy(childpath, "/");
+		strcat(childpath, name);
+	}
+	else {
+		if (dirlen + 1 + namelen + 1 > EMU_MAXIO) {
+			kfree(childpath);
+			emu_close(ev->ev_emu, handle);
+			return ENAMETOOLONG;
+		}
+		strcpy(childpath, ev->ev_path);
+		strcat(childpath, "/");
+		strcat(childpath, name);
+	}
+
+	result = emufs_loadvnode(ef, handle, isdir, childpath, &newguy);
+	kfree(childpath);
+#else
 	result = emufs_loadvnode(ef, handle, isdir, &newguy);
+#endif
 	if (result) {
 		emu_close(ev->ev_emu, handle);
 		return result;
@@ -769,6 +814,11 @@ emufs_lookup(struct vnode *dir, char *pathname, struct vnode **ret)
 	struct emufs_vnode *ev = dir->vn_data;
 	struct emufs_fs *ef = dir->vn_fs->fs_data;
 	struct emufs_vnode *newguy;
+#if OPT_SHELL
+	char *childpath;
+	size_t dirlen;
+	size_t pathlen;
+#endif
 	uint32_t handle;
 	int result;
 	int isdir;
@@ -779,7 +829,40 @@ emufs_lookup(struct vnode *dir, char *pathname, struct vnode **ret)
 		return result;
 	}
 
+#if OPT_SHELL
+	childpath = kmalloc(EMU_MAXIO);
+	if (childpath == NULL) {
+		emu_close(ev->ev_emu, handle);
+		return ENOMEM;
+	}
+
+	dirlen = strlen(ev->ev_path);
+	pathlen = strlen(pathname);
+	if (dirlen == 0) {
+		if (1 + pathlen + 1 > EMU_MAXIO) {
+			kfree(childpath);
+			emu_close(ev->ev_emu, handle);
+			return ENAMETOOLONG;
+		}
+		strcpy(childpath, "/");
+		strcat(childpath, pathname);
+	}
+	else {
+		if (dirlen + 1 + pathlen + 1 > EMU_MAXIO) {
+			kfree(childpath);
+			emu_close(ev->ev_emu, handle);
+			return ENAMETOOLONG;
+		}
+		strcpy(childpath, ev->ev_path);
+		strcat(childpath, "/");
+		strcat(childpath, pathname);
+	}
+
+	result = emufs_loadvnode(ef, handle, isdir, childpath, &newguy);
+	kfree(childpath);
+#else
 	result = emufs_loadvnode(ef, handle, isdir, &newguy);
+#endif
 	if (result) {
 		emu_close(ev->ev_emu, handle);
 		return result;
@@ -829,6 +912,10 @@ int
 emufs_namefile(struct vnode *v, struct uio *uio)
 {
 	struct emufs_vnode *ev = v->vn_data;
+
+#if OPT_SHELL
+	return uiomove(ev->ev_path, strlen(ev->ev_path), uio);
+#else
 	struct emufs_fs *ef = v->vn_fs->fs_data;
 
 	if (ev == ef->ef_root) {
@@ -841,6 +928,7 @@ emufs_namefile(struct vnode *v, struct uio *uio)
 	(void)uio;
 
 	return ENOSYS;
+#endif
 }
 
 /*
@@ -1143,6 +1231,9 @@ static const struct vnode_ops emufs_dirops = {
 static
 int
 emufs_loadvnode(struct emufs_fs *ef, uint32_t handle, int isdir,
+#if OPT_SHELL
+		const char *path,
+#endif
 		struct emufs_vnode **ret)
 {
 	struct vnode *v;
@@ -1179,12 +1270,24 @@ emufs_loadvnode(struct emufs_fs *ef, uint32_t handle, int isdir,
 
 	ev->ev_emu = ef->ef_emu;
 	ev->ev_handle = handle;
+#if OPT_SHELL
+	ev->ev_path = kstrdup(path);
+	if (ev->ev_path == NULL) {
+		lock_release(ef->ef_emu->e_lock);
+		vfs_biglock_release();
+		kfree(ev);
+		return ENOMEM;
+	}
+#endif
 
 	result = vnode_init(&ev->ev_v, isdir ? &emufs_dirops : &emufs_fileops,
 			    &ef->ef_fs, ev);
 	if (result) {
 		lock_release(ef->ef_emu->e_lock);
 		vfs_biglock_release();
+#if OPT_SHELL
+		kfree(ev->ev_path);
+#endif
 		kfree(ev);
 		return result;
 	}
@@ -1195,6 +1298,9 @@ emufs_loadvnode(struct emufs_fs *ef, uint32_t handle, int isdir,
 		vnode_cleanup(&ev->ev_v);
 		lock_release(ef->ef_emu->e_lock);
 		vfs_biglock_release();
+#if OPT_SHELL
+		kfree(ev->ev_path);
+#endif
 		kfree(ev);
 		return result;
 	}
@@ -1310,7 +1416,11 @@ emufs_addtovfs(struct emu_softc *sc, const char *devname)
 		return ENOMEM;
 	}
 
-	result = emufs_loadvnode(ef, EMU_ROOTHANDLE, 1, &ef->ef_root);
+	result = emufs_loadvnode(ef, EMU_ROOTHANDLE, 1,
+#if OPT_SHELL
+			       "",
+#endif
+			       &ef->ef_root);
 	if (result) {
 		kfree(ef);
 		return result;
