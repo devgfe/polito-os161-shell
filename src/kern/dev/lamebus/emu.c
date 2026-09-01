@@ -56,6 +56,10 @@
 #include "autoconf.h"
 #include "opt-shell.h"
 
+#if OPT_SHELL
+#include <limits.h>
+#endif
+
 /* Register offsets */
 #define REG_HANDLE    0
 #define REG_OFFSET    4
@@ -762,7 +766,7 @@ emufs_creat(struct vnode *dir, const char *name, bool excl, mode_t mode,
 	}
 
 #if OPT_SHELL
-	childpath = kmalloc(EMU_MAXIO);
+	childpath = kmalloc(PATH_MAX);
 	if (childpath == NULL) {
 		emu_close(ev->ev_emu, handle);
 		return ENOMEM;
@@ -771,7 +775,7 @@ emufs_creat(struct vnode *dir, const char *name, bool excl, mode_t mode,
 	dirlen = strlen(ev->ev_path);
 	namelen = strlen(name);
 	if (dirlen == 0) {
-		if (1 + namelen + 1 > EMU_MAXIO) {
+		if (1 + namelen + 1 > PATH_MAX) { // layout: "/" + name + NUL
 			kfree(childpath);
 			emu_close(ev->ev_emu, handle);
 			return ENAMETOOLONG;
@@ -780,7 +784,7 @@ emufs_creat(struct vnode *dir, const char *name, bool excl, mode_t mode,
 		strcat(childpath, name);
 	}
 	else {
-		if (dirlen + 1 + namelen + 1 > EMU_MAXIO) {
+		if (dirlen + 1 + namelen + 1 > PATH_MAX) { // layout: ev_path + "/" + name + NUL
 			kfree(childpath);
 			emu_close(ev->ev_emu, handle);
 			return ENAMETOOLONG;
@@ -830,7 +834,7 @@ emufs_lookup(struct vnode *dir, char *pathname, struct vnode **ret)
 	}
 
 #if OPT_SHELL
-	childpath = kmalloc(EMU_MAXIO);
+	childpath = kmalloc(PATH_MAX);
 	if (childpath == NULL) {
 		emu_close(ev->ev_emu, handle);
 		return ENOMEM;
@@ -839,7 +843,7 @@ emufs_lookup(struct vnode *dir, char *pathname, struct vnode **ret)
 	dirlen = strlen(ev->ev_path);
 	pathlen = strlen(pathname);
 	if (dirlen == 0) {
-		if (1 + pathlen + 1 > EMU_MAXIO) {
+		if (1 + pathlen + 1 > PATH_MAX) { // layout: "/" + name + NUL
 			kfree(childpath);
 			emu_close(ev->ev_emu, handle);
 			return ENAMETOOLONG;
@@ -848,7 +852,7 @@ emufs_lookup(struct vnode *dir, char *pathname, struct vnode **ret)
 		strcat(childpath, pathname);
 	}
 	else {
-		if (dirlen + 1 + pathlen + 1 > EMU_MAXIO) {
+		if (dirlen + 1 + pathlen + 1 > PATH_MAX) { // layout: ev_path + "/" + name + NUL
 			kfree(childpath);
 			emu_close(ev->ev_emu, handle);
 			return ENAMETOOLONG;

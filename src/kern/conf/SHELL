@@ -37,5 +37,5 @@ options dumbvm			# Chewing gum and baling wire.
 # Project option
 #
 options shell
-options procdebug
+# options procdebug
 options synch
