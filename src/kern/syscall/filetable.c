@@ -25,7 +25,6 @@ struct open_file {
 
 struct fd_table {
 	struct open_file *ft_entries[OPEN_MAX];
-	struct vnode *ft_cwd;
 	struct lock *ft_lock;
 };
 
@@ -113,7 +112,6 @@ fdtable_create_standard(void)
 	for (i = 0; i < OPEN_MAX; i++) {
 		ft->ft_entries[i] = NULL;
 	}
-	ft->ft_cwd = NULL;
 
 	result = fdtable_open(ft, "con:", O_RDONLY, 0, &fd); // fd = 0: stdin
 	if (result) {
@@ -168,10 +166,6 @@ fdtable_destroy(struct fd_table *table)
 		} else {
 			lock_release(system_table_lock);
 		}
-	}
-
-	if (table->ft_cwd != NULL) {
-		VOP_DECREF(table->ft_cwd);
 	}
 
 	lock_destroy(table->ft_lock);
@@ -492,16 +486,10 @@ fdtable_clone(struct fd_table *source, struct fd_table **copy_ret)
 	for (i = 0; i < OPEN_MAX; i++) {
 		copy->ft_entries[i] = NULL;
 	}
-	copy->ft_cwd = NULL;
 
 	/* Global lock order when both are needed: system_table_lock -> ft_lock */
 	lock_acquire(system_table_lock);
 	lock_acquire(source->ft_lock);
-
-	copy->ft_cwd = source->ft_cwd;
-	if (copy->ft_cwd != NULL) {
-		VOP_INCREF(copy->ft_cwd);
-	}
 
 	for (i = 0; i < OPEN_MAX; i++) {
 		of = source->ft_entries[i];

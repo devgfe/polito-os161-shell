@@ -254,7 +254,7 @@ proc_destroy(struct proc *proc)
 	}
 
 	/* PID release */
-	if (proc->p_pid >= 0) {
+	if (proc->p_pid >= 0 && proc->p_pid <= PID_MAX) {
 		if (pid_lock != NULL) {
 			pid_release(proc->p_pid);
 		}
@@ -326,7 +326,7 @@ proc_create_runprogram(const char *name)
 
 #if OPT_SHELL
 	/* PID management */
-	/* Set parent from the calling process (menu or shell). */
+	/* Set parent from the calling process. */
 	newproc->p_parent = curproc->p_pid;
 
 	/* FD table management */
@@ -452,6 +452,10 @@ proc_setas(struct addrspace *newas)
 
 void pid_release(pid_t pid)
 {
+	if (pid < 0 || pid > PID_MAX) {
+		return;
+	}
+
 	lock_acquire(pid_lock);
 	process_table[pid] = NULL;
     lock_release(pid_lock);
@@ -459,7 +463,9 @@ void pid_release(pid_t pid)
 
 struct proc *proc_lookup(pid_t pid)
 {
-	if (pid < 0 || pid > PID_MAX) return NULL;
+	if (pid < 0 || pid > PID_MAX) {
+		return NULL;
+	}
 
 	struct proc *proc;
 
