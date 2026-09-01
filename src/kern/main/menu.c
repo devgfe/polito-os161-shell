@@ -135,8 +135,8 @@ cmd_progthread(void *ptr, unsigned long nargs)
  * Common code for cmd_prog and cmd_shell.
  *
  * With OPT_SHELL, this also waits for the subprogram to finish by
- * calling the system-calls-assignment waitpid code (sys_waitpid)
- * after forking, instead of returning immediately to the menu.
+ * calling proc_wait() after forking, instead of returning
+ * immediately to the menu.
  * Since the subprogram is waited for and receives its arguments,
  * the "args" array and strings are no longer shared with the menu
  * input code and the race condition does not arise.
@@ -173,7 +173,7 @@ common_prog(int nargs, char **args)
 	 * The new process is destroyed when the program exits.
 	 * With OPT_SHELL this is handled by sys__exit (called by the
 	 * program on exit, or by cmd_progthread on error) together with
-	 * the sys_waitpid below.
+	 * the proc_wait below.
 	 */
 
 #if OPT_SHELL

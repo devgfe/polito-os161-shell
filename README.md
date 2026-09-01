@@ -96,9 +96,10 @@ In the base system, `cmd_progthread` only forwarded the program name to `runprog
 
 In the base system, `common_prog` returned to the menu immediately after `thread_fork`, without waiting for the subprogram. Now, after forking, `common_prog`:
 
-1. Saves the child PID and blocks in `proc_wait(proc)` until the child process exits (via `sys__exit`).
-2. Destroys the reaped process with `proc_destroy`.
-3. Prints the terminated PID and its exit code, then returns to the menu prompt.
+1. Saves the child PID and blocks in `proc_wait(proc)` until the child process exits (via `_exit`).
+2. Destroys the reaped process with `proc_destroy`, then returns to the menu prompt.
+
+Diagnostic PID information is printed only when `OPT_PROCDEBUG` is enabled.
 
 If `runprogram` fails inside the child thread (e.g. the executable does not exist), `cmd_progthread` prints the error and calls `sys__exit(1)`, so the parent waiting in `proc_wait` always wakes up and the menu never hangs.
 

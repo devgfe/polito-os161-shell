@@ -1,5 +1,6 @@
 #include <types.h>
 #include <kern/errno.h>
+#include <kern/fcntl.h>
 #include <lib.h>
 #include <copyinout.h>
 #include <current.h>
@@ -132,6 +133,13 @@ sys_open(userptr_t path, int flags, mode_t mode, int32_t *retval)
 	char *kpath;
 	int fd;
 	int result;
+	int allowed_openflags;
+
+	/* Reject unknown open flag bits with EINVAL. */
+	allowed_openflags = O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND;
+	if ((flags & ~allowed_openflags) != 0) {
+		return EINVAL;
+	}
 
 	kpath = kmalloc(PATH_MAX);
 	if (kpath == NULL) {
