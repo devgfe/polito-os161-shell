@@ -195,6 +195,16 @@ common_prog(int nargs, char **args)
 
 #endif
 
+#if OPT_SHELL
+	/*
+	 * Wait for the child process to exit before returning to the menu.
+	 */
+	pid_t pid_to_wait = proc->p_pid;
+	int exit_code = proc_wait(proc);
+	proc_destroy(proc);
+	kprintf("Process %d terminated with exit code = %d\n", (int)pid_to_wait, exit_code);
+#endif
+
 	return 0;
 }
 
