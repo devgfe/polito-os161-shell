@@ -107,31 +107,44 @@ proc_create(const char *name)
 	proc->p_cwd = NULL;
 
 #if OPT_SHELL
-	/* File descriptor table initialization */
+	/* PID management state */
+	proc->p_pid = NO_PARENT;
+	proc->p_parent = NO_PARENT;
+	proc->p_children = NULL;
+
+	/* Wait/exit state */
+	proc->p_exited = false;
+	proc->p_exitcode = 0;
+	proc->p_waitlock = NULL;
+	proc->p_waitcv = NULL;
+
+	/* FD table state */
 	proc->p_fdtable = NULL;
 
-	/* Process ID (PID) assignment */
-	if (kproc != NULL)
-	{
+	/* PID assignment */
+	if (kproc != NULL) {
 		int err = proc_assign_pid(proc);
-		if (err)
-		{
+		if (err) {
 			proc_destroy(proc);
 			return NULL;
 		}
 	}
-	else
-	{
-		proc_init_kernel_pid(proc); // kernel process initialitation
+	else {
+		proc_init_kernel_pid(proc); // kernel process initialization
 	}
 
-	proc->p_parent = -1;
-	proc->p_exited = false;
-	proc->p_exitcode = 0;
-	proc->p_children = NULL;
-
+	/* Wait/exit synchronization */
 	proc->p_waitlock = lock_create("waitlock");
+	if (proc->p_waitlock == NULL) {
+		proc_destroy(proc);
+		return NULL;
+	}
+
 	proc->p_waitcv = cv_create("waitcv");
+	if (proc->p_waitcv == NULL) {
+		proc_destroy(proc);
+		return NULL;
+	}
 #endif
 
 	return proc;
@@ -223,18 +236,33 @@ proc_destroy(struct proc *proc)
 	kfree(proc->p_name);
 
 #if OPT_SHELL
-	lock_destroy(proc->p_waitlock);
-	cv_destroy(proc->p_waitcv);
+	/* Wait/exit state cleanup */
+	if (proc->p_waitcv != NULL) {
+		cv_destroy(proc->p_waitcv);
+		proc->p_waitcv = NULL;
+	}
+	if (proc->p_waitlock != NULL) {
+		lock_destroy(proc->p_waitlock);
+		proc->p_waitlock = NULL;
+	}
 
-	/* File descriptor table cleanup */
+	/* FD table cleanup */
 	if (proc->p_fdtable != NULL)
 	{
 		fdtable_destroy(proc->p_fdtable);
 		proc->p_fdtable = NULL;
 	}
 
-	/* Process ID (PID) release */
-	pid_release(proc->p_pid);
+	/* PID release */
+	if (proc->p_pid >= 0 && proc->p_pid <= PID_MAX) {
+		if (pid_lock != NULL) {
+			pid_release(proc->p_pid);
+		}
+		else if (proc->p_pid == 0) {
+			/* Early bootstrap fallback: pid_lock not created yet. */
+			process_table[0] = NULL;
+		}
+	}
 #endif
 
 	kfree(proc);
@@ -252,7 +280,7 @@ proc_bootstrap(void)
 	}
 
 #if OPT_SHELL
-	// pid_lock initialization
+	/* PID allocator lock initialization. */
 	pid_lock = lock_create("pid_lock");
 	if (pid_lock == NULL)
 	{
@@ -297,9 +325,11 @@ proc_create_runprogram(const char *name)
 	spinlock_release(&curproc->p_lock);
 
 #if OPT_SHELL
-	/* Set parent from the calling process (menu or shell) */
+	/* PID management */
+	/* Set parent from the calling process. */
 	newproc->p_parent = curproc->p_pid;
 
+	/* FD table management */
 	/* Create the fd table for the new process and initialize the standard descriptors */
 	newproc->p_fdtable = fdtable_create_standard();
 	if (newproc->p_fdtable == NULL)
@@ -418,8 +448,14 @@ proc_setas(struct addrspace *newas)
 
 #if OPT_SHELL
 
+/* ========================= PID management ========================= */
+
 void pid_release(pid_t pid)
 {
+	if (pid < 0 || pid > PID_MAX) {
+		return;
+	}
+
 	lock_acquire(pid_lock);
 	process_table[pid] = NULL;
     lock_release(pid_lock);
@@ -427,7 +463,9 @@ void pid_release(pid_t pid)
 
 struct proc *proc_lookup(pid_t pid)
 {
-	if (pid < 0 || pid > PID_MAX) return NULL;
+	if (pid < 0 || pid > PID_MAX) {
+		return NULL;
+	}
 
 	struct proc *proc;
 
@@ -479,6 +517,8 @@ static int find_valid_pid(void)
 
 	return -1;
 }
+
+/* ===================== Wait/exit state management ===================== */
 
 /*
  * Wait for the given process to exit.

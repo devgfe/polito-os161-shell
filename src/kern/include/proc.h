@@ -88,21 +88,20 @@ struct proc {
 	/* add more material here as needed */
 
 #if OPT_SHELL
-	/* Process identification and exit state */
+	/* PID management */
 	pid_t p_pid;
 	pid_t p_parent;
+	struct proc_node *p_children;
 
+	/* Wait/exit state */
 	bool p_exited;
 	int p_exitcode;
 
 	struct cv *p_waitcv;
 	struct lock *p_waitlock;
 
-	/* File descriptor table */
+	/* FD table */
 	struct fd_table *p_fdtable;	/* process file descriptor table */
-
-	/* Children */
-    struct proc_node *p_children;
 #endif
 };
 
@@ -131,12 +130,14 @@ struct addrspace *proc_getas(void);
 struct addrspace *proc_setas(struct addrspace *);
 
 #if OPT_SHELL
+/* PID management */
 /* Return a process structure given a process identifier. */
 struct proc* proc_lookup(pid_t pid);
 
 /* Release the pid in the process table. */
 void pid_release(pid_t pid);
 
+/* Wait/exit state */
 /* Wait for the given process to exit and return its exit code. */
 int proc_wait(struct proc *proc);
 

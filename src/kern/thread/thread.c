@@ -803,18 +803,6 @@ thread_exit(void)
 	proc_remthread(cur);
 #endif
 
-#if OPT_SHELL
-	if (p != NULL &&
-		p->p_exited &&
-		p->p_parent < 0 &&
-		p->p_numthreads == 0) {
-
-		pid_release(p->p_pid);
-		proc_destroy(p);
-		p=NULL;
-	}
-#endif
-
 	/* Make sure we *are* detached (move this only if you're sure!) */
 	KASSERT(cur->t_proc == NULL);
 

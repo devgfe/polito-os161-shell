@@ -25,7 +25,6 @@ struct open_file {
 
 struct fd_table {
 	struct open_file *ft_entries[OPEN_MAX];
-	struct vnode *ft_cwd;
 	struct lock *ft_lock;
 };
 
@@ -113,7 +112,6 @@ fdtable_create_standard(void)
 	for (i = 0; i < OPEN_MAX; i++) {
 		ft->ft_entries[i] = NULL;
 	}
-	ft->ft_cwd = NULL;
 
 	result = fdtable_open(ft, "con:", O_RDONLY, 0, &fd); // fd = 0: stdin
 	if (result) {
@@ -168,10 +166,6 @@ fdtable_destroy(struct fd_table *table)
 		} else {
 			lock_release(system_table_lock);
 		}
-	}
-
-	if (table->ft_cwd != NULL) {
-		VOP_DECREF(table->ft_cwd);
 	}
 
 	lock_destroy(table->ft_lock);
@@ -417,46 +411,54 @@ fdtable_dup2(struct fd_table *table, int oldfd, int newfd, int32_t *retval)
 {
 	struct open_file *of;
 	struct open_file *old_at_new;
+	int old_at_new_index;
+	int free_old_at_new;
 
 	if (oldfd < 0 || oldfd >= OPEN_MAX || newfd < 0 || newfd >= OPEN_MAX) {
 		return EBADF;
 	}
 
+	/* Global lock order when both are needed: system_table_lock -> ft_lock */
+	lock_acquire(system_table_lock);
 	lock_acquire(table->ft_lock);
 
 	of = table->ft_entries[oldfd];
 	if (of == NULL) {
 		lock_release(table->ft_lock);
+		lock_release(system_table_lock);
 		return EBADF;
 	}
 
 	if (oldfd == newfd) {
 		lock_release(table->ft_lock);
+		lock_release(system_table_lock);
 		*retval = newfd;
 		return 0;
 	}
 
 	old_at_new = table->ft_entries[newfd];
 	table->ft_entries[newfd] = of;
-
-	lock_acquire(system_table_lock);
 	of->of_refcount++;
-	lock_release(system_table_lock);
 
-	lock_release(table->ft_lock);
-
+	free_old_at_new = 0;
+	old_at_new_index = -1;
+	
 	if (old_at_new != NULL) {
-		lock_acquire(system_table_lock);
 		old_at_new->of_refcount--;
 		if (old_at_new->of_refcount == 0) {
-			system_table[old_at_new->of_index] = NULL;
-			lock_release(system_table_lock);
-			vfs_close(old_at_new->of_vn);
-			lock_destroy(old_at_new->of_lock);
-			kfree(old_at_new);
-		} else {
-			lock_release(system_table_lock);
+			old_at_new_index = old_at_new->of_index;
+			system_table[old_at_new_index] = NULL;
+			free_old_at_new = 1;
 		}
+	}
+
+	lock_release(table->ft_lock);
+	lock_release(system_table_lock);
+
+	if (free_old_at_new) {
+		vfs_close(old_at_new->of_vn);
+		lock_destroy(old_at_new->of_lock);
+		kfree(old_at_new);
 	}
 
 	*retval = newfd;
@@ -484,14 +486,10 @@ fdtable_clone(struct fd_table *source, struct fd_table **copy_ret)
 	for (i = 0; i < OPEN_MAX; i++) {
 		copy->ft_entries[i] = NULL;
 	}
-	copy->ft_cwd = NULL;
 
+	/* Global lock order when both are needed: system_table_lock -> ft_lock */
+	lock_acquire(system_table_lock);
 	lock_acquire(source->ft_lock);
-
-	copy->ft_cwd = source->ft_cwd;
-	if (copy->ft_cwd != NULL) {
-		VOP_INCREF(copy->ft_cwd);
-	}
 
 	for (i = 0; i < OPEN_MAX; i++) {
 		of = source->ft_entries[i];
@@ -499,12 +497,10 @@ fdtable_clone(struct fd_table *source, struct fd_table **copy_ret)
 			continue;
 		}
 		copy->ft_entries[i] = of;
-
-		lock_acquire(system_table_lock);
 		of->of_refcount++;
-		lock_release(system_table_lock);
 	}
 	lock_release(source->ft_lock);
+	lock_release(system_table_lock);
 
 	*copy_ret = copy;
 	return 0;
