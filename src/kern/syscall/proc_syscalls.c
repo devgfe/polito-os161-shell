@@ -203,14 +203,17 @@ void sys__exit(int exitcode)
 
 int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 {
+	bool nohang;
+
 	/*
-	* OS/161 currently supports only options == 0.
-	* The parameter is kept for compatibility with the standard POSIX waitpid interface,
-	* where additional flags (e.g., WNOHANG) may be supported in the future.
-	*/
-	if (options != 0) {
+	 * Support blocking wait (options == 0) and WNOHANG.
+	 * Reject any other option bits.
+	 */
+	if ((options & ~WNOHANG) != 0) {
 		return EINVAL;
 	}
+
+	nohang = (options & WNOHANG) != 0;
 
 	struct proc *child = proc_lookup(pid);
 
@@ -224,6 +227,19 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 
 	if (parent != curproc->p_pid) {
 		return ECHILD;
+	}
+
+	if (nohang) {
+		bool exited;
+
+		spinlock_acquire(&child->p_lock);
+		exited = child->p_exited;
+		spinlock_release(&child->p_lock);
+
+		if (!exited) {
+			*retval = 0;
+			return 0;
+		}
 	}
 
 	int code = proc_wait(child);
