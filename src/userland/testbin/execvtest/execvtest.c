@@ -49,7 +49,7 @@ expect_exec(const char *description, const char *program, char **args,
 		return;
 	}
 
-	if (pid == 0) { 
+	if (pid == 0) {
 		/*
 		 * Child: try to replace this process image.
 		 * On success execv does not return at all. On failure it

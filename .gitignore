@@ -14,3 +14,7 @@ src/kern/compile/*/
 *.o
 *.d
 *.a
+
+# Python cache
+__pycache__/
+*.pyc

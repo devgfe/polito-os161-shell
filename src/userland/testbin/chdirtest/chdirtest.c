@@ -32,14 +32,14 @@ main(void)
 		}
 	}
 	else {
-		fail("chdir changes to an existing directory");
+		fail_errno("chdir changes to an existing directory", 0, errno);
 	}
 
 	if (chdir("/") == 0) {
 		pass("chdir changes back to root");
 	}
 	else {
-		fail("chdir changes back to root");
+		fail_errno("chdir changes back to root", 0, errno);
 	}
 
 	errno = 0;

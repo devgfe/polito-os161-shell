@@ -42,6 +42,7 @@ prepare_test_file(const char *contents, size_t length)
 	}
 	return 0;
 }
+
 int
 main(void)
 {

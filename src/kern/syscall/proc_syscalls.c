@@ -17,6 +17,7 @@
 #include <machine/trapframe.h>
 #include <initstack.h>
 #include <filetable.h>
+#include "opt-procdebug.h"
 
 /*
  * sys_execv - replace current process image with a new program
@@ -196,19 +197,7 @@ fail:
 
 void sys__exit(int exitcode)
 {
-	struct proc *p = curproc;
-
-	lock_acquire(p->p_waitlock);
-
-	p->p_exitcode = _MKWAIT_EXIT(exitcode);
-	p->p_exited = true;
-
-	cv_broadcast(p->p_waitcv, p->p_waitlock);
-
-	lock_release(p->p_waitlock);
-
-	thread_exit();
-	panic("thread_exit returned\n");
+	proc_exit(_MKWAIT_EXIT(exitcode));
 }
 
 
@@ -228,21 +217,34 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 	if (child == NULL) {
 		return ESRCH;
 	}
+	
+	spinlock_acquire(&child->p_lock);
+	pid_t parent = child->p_parent;
+	spinlock_release(&child->p_lock);
 
-	if (child->p_parent != curproc->p_pid) {
+	if (parent != curproc->p_pid) {
 		return ECHILD;
 	}
 
 	int code = proc_wait(child);
 
-	int err = copyout(&code, status, sizeof(int));
-	if (err) {
-		return err;
+	if (status != NULL) {
+		int err = copyout(&code, status, sizeof(int));
+		if (err) {
+			return err;
+		}
 	}
 
 	proc_destroy(child);
+	(void)proc_remove_child(curproc, pid);
 
 	*retval = pid;
+
+#if OPT_PROCDEBUG
+	kprintf("Process %d collected process %d via waitpid (process parent pid=%d)\n",
+			(int)curproc->p_pid, (int)pid, (int)parent);
+#endif
+
 	return 0;
 }
 
@@ -292,6 +294,14 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 	fdtable_destroy(child->p_fdtable);
 	child->p_fdtable = child_fdtable;
 
+	/* Add the process to the children list */
+	err = proc_add_child(curproc, child->p_pid); 
+	if (err) {
+		proc_destroy(child);
+		kfree(child_tf);
+		return err;
+	}
+
 	err = thread_fork(
 		curthread->t_name,
 		child,
@@ -301,6 +311,7 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 	);
 
 	if (err) {
+		proc_remove_child(curproc, child->p_pid);
 		proc_destroy(child);
 		kfree(child_tf);
 		return err;
