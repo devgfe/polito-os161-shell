@@ -53,9 +53,6 @@ struct fd_table;
 struct addrspace;
 struct thread;
 struct vnode;
-#if OPT_SHELL
-struct fd_table;
-#endif
 
 /*
  * Process structure.

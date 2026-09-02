@@ -781,15 +781,7 @@ thread_exit(void)
 {
 	struct thread *cur;
 
-#if OPT_SHELL
-	struct proc* p;
-#endif
-
 	cur = curthread;
-
-#if OPT_SHELL
-	p = cur->t_proc;
-#endif
 
 	/*
 	 * Detach from our process. You might need to move this action
