@@ -51,6 +51,11 @@
 #include <version.h>
 #include "autoconf.h"  // for pseudoconfig
 
+#include "opt-shell.h"
+#if OPT_SHELL
+#include <filetable.h>
+#endif
+
 
 /*
  * These two pieces of data are maintained by the makefiles and build system.
@@ -101,7 +106,7 @@ boot(void)
 	kprintf("%s", harvard_copyright);
 	kprintf("\n");
 
-	kprintf("Put-your-group-name-here's system version %s (%s #%d)\n",
+	kprintf("polito-os161-shell's system version %s (%s #%d)\n",
 		GROUP_VERSION, buildconfig, buildversion);
 	kprintf("\n");
 
@@ -111,6 +116,9 @@ boot(void)
 	thread_bootstrap();
 	hardclock_bootstrap();
 	vfs_bootstrap();
+#if OPT_SHELL
+	filetable_bootstrap();
+#endif
 	kheap_nextgeneration();
 
 	/* Probe and initialize devices. Interrupts should come on. */

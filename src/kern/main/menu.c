@@ -45,6 +45,11 @@
 #include <test.h>
 #include "opt-sfs.h"
 #include "opt-net.h"
+#include "opt-shell.h"
+
+#if OPT_SHELL
+#include <current.h>
+#endif
 
 /*
  * In-kernel menu and command dispatcher.
@@ -61,7 +66,32 @@
 /*
  * Function for a thread that runs an arbitrary userlevel program by
  * name.
- *
+ */
+#if OPT_SHELL
+static
+void
+cmd_progthread(void *ptr, unsigned long nargs)
+{
+	char **args = ptr;
+	int result;
+
+	KASSERT(nargs >= 1);
+
+	result = runprogram(args, nargs);
+	if (result) {
+		kprintf("Running program %s failed: %s\n", args[0], strerror(result));
+		/*
+		 * Mark the process as exited so that the parent waiting
+		 * in proc_wait() wakes up and can destroy it.
+		 */
+		sys__exit(1);
+		/* NOTREACHED */
+	}
+
+	/* NOTREACHED: runprogram only returns on error. */
+}
+#else
+/*
  * Note: this cannot pass arguments to the program. You may wish to
  * change it so it can, because that will make testing much easier
  * in the future.
@@ -97,6 +127,7 @@ cmd_progthread(void *ptr, unsigned long nargs)
 
 	/* NOTREACHED: runprogram only returns on error. */
 }
+#endif
 
 /*
  * Common code for cmd_prog and cmd_shell.
@@ -137,6 +168,16 @@ common_prog(int nargs, char **args)
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.
 	 */
+
+#if OPT_SHELL
+	/*
+	 * Wait for the child process to exit before returning to the menu.
+	 */
+	pid_t pid_to_wait = proc->p_pid;
+	int exit_code = proc_wait(proc);
+	proc_destroy(proc);
+	kprintf("Process %d terminated with exit code = %d\n", (int)pid_to_wait, exit_code);
+#endif
 
 	return 0;
 }

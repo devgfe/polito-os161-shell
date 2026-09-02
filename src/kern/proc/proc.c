@@ -48,6 +48,29 @@
 #include <current.h>
 #include <addrspace.h>
 #include <vnode.h>
+#include "opt-shell.h"
+
+#if OPT_SHELL
+#include <filetable.h>
+#include "synch.h"
+#include "kern/errno.h"
+
+#define PID_MAX 32767
+
+/* Assign a unique process identifier (PID) to the kernel process. */
+static void proc_init_kernel_pid(struct proc *proc);
+
+/* Assign a unique process identifier (PID) to the given process. */
+static int proc_assign_pid(struct proc *proc);
+
+/* Returns an available PID, reusing a free one if the PID range has been exhausted. */
+static int find_valid_pid(void);
+
+
+static struct proc *process_table[PID_MAX + 1];
+static struct lock *pid_lock; // lock for pid assignment
+static pid_t next_pid;
+#endif
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -81,6 +104,29 @@ proc_create(const char *name)
 
 	/* VFS fields */
 	proc->p_cwd = NULL;
+
+#if OPT_SHELL
+	/* File descriptor table initialization */
+	proc->p_fdtable = NULL;
+
+	/* Process ID (PID) assignment */
+	if(kproc != NULL){
+		int err = proc_assign_pid(proc);
+		if (err) {
+			proc_destroy(proc);
+			return NULL;
+		}
+	}else{
+		proc_init_kernel_pid(proc); // kernel process initialitation
+	}
+
+	proc->p_parent = -1;
+	proc->p_exited = false;
+	proc->p_exitcode = 0;
+
+	proc->p_waitlock = lock_create("waitlock"); // TO DO - bisogna distruggere i lock
+	proc->p_waitcv   = cv_create("waitcv");
+#endif
 
 	return proc;
 }
@@ -169,6 +215,25 @@ proc_destroy(struct proc *proc)
 	spinlock_cleanup(&proc->p_lock);
 
 	kfree(proc->p_name);
+
+#if OPT_SHELL
+	/* File descriptor table cleanup */
+	if (proc->p_fdtable != NULL) {
+		fdtable_destroy(proc->p_fdtable);
+		proc->p_fdtable = NULL;
+	}
+
+	/* Process ID (PID) release */
+	lock_acquire(pid_lock);
+
+	if(proc->p_pid >= 0){
+		pid_release(proc->p_pid);
+		proc->p_pid = -1;
+	}
+
+	lock_release(pid_lock);
+#endif
+
 	kfree(proc);
 }
 
@@ -182,6 +247,15 @@ proc_bootstrap(void)
 	if (kproc == NULL) {
 		panic("proc_create for kproc failed\n");
 	}
+
+#if OPT_SHELL
+	// pid_lock initialization
+	pid_lock = lock_create("pid_lock");
+	if (pid_lock == NULL) {
+		panic("lock_create for pid_lock failed\n");
+	}
+#endif
+
 }
 
 /*
@@ -217,6 +291,18 @@ proc_create_runprogram(const char *name)
 		newproc->p_cwd = curproc->p_cwd;
 	}
 	spinlock_release(&curproc->p_lock);
+
+#if OPT_SHELL
+	/* Set parent from the calling process (menu or shell) */
+	newproc->p_parent = curproc->p_pid;
+
+	/* Create the fd table for the new process and initialize the standard descriptors */
+	newproc->p_fdtable = fdtable_create_standard();
+	if (newproc->p_fdtable == NULL) {
+		proc_destroy(newproc);
+		return NULL;
+	}
+#endif
 
 	return newproc;
 }
@@ -318,3 +404,76 @@ proc_setas(struct addrspace *newas)
 	spinlock_release(&proc->p_lock);
 	return oldas;
 }
+
+#if OPT_SHELL
+
+void pid_release(pid_t pid){
+	process_table[pid] = NULL;
+}
+
+struct proc* proc_lookup(pid_t pid){
+	return process_table[pid];
+}
+
+static int proc_assign_pid(struct proc *proc){
+	lock_acquire(pid_lock);
+
+	int pid = find_valid_pid();
+	if (pid < 0) {
+		lock_release(pid_lock);
+		return ENPROC;
+	}
+
+	proc->p_pid = pid;
+	process_table[pid] = proc;
+
+	if (pid == next_pid && next_pid <= PID_MAX)
+		next_pid++;
+
+	lock_release(pid_lock);
+	return 0;
+			
+}
+
+static void proc_init_kernel_pid(struct proc *proc){
+	proc->p_pid = 0;
+	process_table[0] = proc;
+	next_pid=1;
+}
+
+static int find_valid_pid(void){
+	if(next_pid <= PID_MAX) return next_pid;
+
+	for(int i = 1; i <= PID_MAX ; i++){
+		if(process_table[i] == NULL) return i;
+	}
+
+	return -1;
+}
+
+/*
+ * Wait for the given process to exit.
+ *
+ * Blocks the calling thread on the process's wait condition variable
+ * until the process sets p_exited (via sys__exit). Returns the
+ * process's exit code.
+ *
+ * Note: the caller is responsible for destroying the process
+ * structure afterwards with proc_destroy().
+ */
+int proc_wait(struct proc *proc){
+	int exitcode;
+
+	KASSERT(proc != NULL);
+
+	lock_acquire(proc->p_waitlock);
+	while (!proc->p_exited) {
+		cv_wait(proc->p_waitcv, proc->p_waitlock);
+	}
+	exitcode = proc->p_exitcode;
+	lock_release(proc->p_waitlock);
+
+	return exitcode;
+}
+
+#endif
