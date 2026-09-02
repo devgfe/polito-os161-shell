@@ -8,8 +8,13 @@ root/*
 
 # Build artifacts
 src/build/
+src/userland/testbin/**/build
 src/defs.mk
 src/kern/compile/*/
 *.o
 *.d
 *.a
+
+# Python cache
+__pycache__/
+*.pyc

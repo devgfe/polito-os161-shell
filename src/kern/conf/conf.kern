@@ -392,10 +392,13 @@ file      main/menu.c
 #
 
 defoption shell
+defoption procdebug
 defoption synch
 
 optfile shell syscall/proc_syscalls.c
+optfile shell syscall/initstack.c
 optfile shell syscall/file_syscalls.c
+optfile shell syscall/filetable.c
 
 ########################################
 #                                      #

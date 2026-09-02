@@ -44,6 +44,95 @@
 #include <vfs.h>
 #include <syscall.h>
 #include <test.h>
+#include "opt-shell.h"
+
+#if OPT_SHELL
+#include <copyinout.h>
+#include <initstack.h>
+
+/*
+ * runprogram(args, nargs) - start a userlevel program with arguments.
+ *
+ * Arguments are copied from kernel space onto the new user stack via
+ * initstack. Does not return except on error.
+ */
+int
+runprogram(char **args, unsigned long nargs)
+{
+	struct addrspace *as;
+	struct vnode *v;
+	vaddr_t entrypoint, stackptr;
+	int result;
+	char *progname;
+	userptr_t argv;
+	int argc = (int)nargs;
+
+	/* vfs_open may destroy the name; keep a private copy. */
+	progname = kstrdup(args[0]);
+	if (progname == NULL) {
+		return ENOMEM;
+	}
+
+	/* Open the file. */
+	result = vfs_open(progname, O_RDONLY, 0, &v);
+	if (result) {
+		kfree(progname);
+		return result;
+	}
+
+	/* We should be a new process. */
+	KASSERT(proc_getas() == NULL);
+
+	/* Create a new address space. */
+	as = as_create();
+	if (as == NULL) {
+		vfs_close(v);
+		kfree(progname);
+		return ENOMEM;
+	}
+
+	/* Switch to it and activate it. */
+	proc_setas(as);
+	as_activate();
+
+	/* Load the executable. */
+	result = load_elf(v, &entrypoint);
+	if (result) {
+		/* p_addrspace will go away when curproc is destroyed */
+		vfs_close(v);
+		kfree(progname);
+		return result;
+	}
+
+	/* Done with the file now. */
+	vfs_close(v);
+
+	/* Define the user stack in the address space */
+	result = as_define_stack(as, &stackptr);
+	if (result) {
+		/* p_addrspace will go away when curproc is destroyed */
+		kfree(progname);
+		return result;
+	}
+
+	/* Build argv on the user stack. */
+	result = initstack(args, argc, stackptr, &argv);
+	kfree(progname);
+	if (result) {
+		return result;
+	}
+
+	/* Warp to user mode passing argc/argv. */
+	enter_new_process(argc, argv,
+			  NULL /*userspace addr of environment*/,
+			  (vaddr_t)argv, entrypoint);
+
+	/* enter_new_process does not return. */
+	panic("enter_new_process returned\n");
+	return EINVAL;
+}
+
+#else
 
 /*
  * Load program "progname" and start running it in usermode.
@@ -106,4 +195,4 @@ runprogram(char *progname)
 	panic("enter_new_process returned\n");
 	return EINVAL;
 }
-
+#endif

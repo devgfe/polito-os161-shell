@@ -69,7 +69,33 @@ The sudo password for the container user is `os161`.
 
 ---
 
-### 5. Configure your Git identity
+### 5. Install Python and pexpect
+
+The automated syscall tests are driven by two Python scripts
+([`src/testscripts/syscall_tests.py`](src/testscripts/syscall_tests.py) for the
+non-interactive tests and [`src/testscripts/stdio_test.py`](src/testscripts/stdio_test.py)
+for the interactive stdiodtest) that boot OS/161 and feed commands to the kernel
+menu, waiting for each prompt. They rely on the [`pexpect`](https://pexpect.readthedocs.io/)
+library, which is not installed by default in the container.
+
+Install both with:
+
+```bash
+sudo apt update && sudo apt install -y python3 python3-pexpect
+```
+
+Verify the installation:
+
+```bash
+python3 --version                          # expected: Python 3.x
+python3 -c "import pexpect; print('ok')"   # expected: ok
+```
+
+You only need this to run the automated tests. Compiling and manually running OS/161 does not require Python.
+
+---
+
+### 6. Configure your Git identity
 
 ```bash
 git config --global user.name "First Last"
@@ -80,7 +106,7 @@ Use the email associated with your GitHub account.
 
 ---
 
-### 6. Set up SSH authentication for GitHub
+### 7. Set up SSH authentication for GitHub
 
 Generate a key (press Enter at all prompts to accept the defaults):
 
@@ -116,7 +142,7 @@ Hi <username>! You've successfully authenticated, but GitHub does not provide sh
 
 ---
 
-### 7. Initialize the local repository
+### 8. Initialize the local repository
 
 The container already pre-populates `src/`, `tools/`, and `root/`. The following commands overlay the repository contents on top, replacing `src/` with the project version while leaving `tools/` and `root/` untouched.
 

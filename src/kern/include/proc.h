@@ -37,10 +37,25 @@
  */
 
 #include <spinlock.h>
+#include "opt-shell.h"
+
+#if OPT_SHELL
+#define NO_PARENT ((pid_t)-1)
+
+struct proc_node {
+    pid_t pid;
+    struct proc_node *next;
+};
+
+struct fd_table;
+#endif
 
 struct addrspace;
 struct thread;
 struct vnode;
+#if OPT_SHELL
+struct fd_table;
+#endif
 
 /*
  * Process structure.
@@ -71,6 +86,23 @@ struct proc {
 	struct vnode *p_cwd;		/* current working directory */
 
 	/* add more material here as needed */
+
+#if OPT_SHELL
+	/* PID management */
+	pid_t p_pid;
+	pid_t p_parent;
+	struct proc_node *p_children;
+
+	/* Wait/exit state */
+	bool p_exited;
+	int p_exitcode;
+
+	struct cv *p_waitcv;
+	struct lock *p_waitlock;
+
+	/* FD table */
+	struct fd_table *p_fdtable;	/* process file descriptor table */
+#endif
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */
@@ -97,5 +129,29 @@ struct addrspace *proc_getas(void);
 /* Change the address space of the current process, and return the old one. */
 struct addrspace *proc_setas(struct addrspace *);
 
+#if OPT_SHELL
+/* PID management */
+/* Return a process structure given a process identifier. */
+struct proc* proc_lookup(pid_t pid);
+
+/* Release the pid in the process table. */
+void pid_release(pid_t pid);
+
+/* Wait/exit state */
+/* Wait for the given process to exit and return its exit code. */
+int proc_wait(struct proc *proc);
+
+/* Store the exit code and terminate the current thread. */
+void proc_exit(int exitcode);
+
+/* Add a child process to the childen list of the parent process. */
+int proc_add_child(struct proc *parent, pid_t pid);
+
+/* Remove a child process from the childen list of the parent process. */
+int proc_remove_child(struct proc *parent, pid_t pid);
+
+/* Remove all children from the childen list of the parent process. */
+void proc_remove_all_children(struct proc *parent);
+#endif 
 
 #endif /* _PROC_H_ */
