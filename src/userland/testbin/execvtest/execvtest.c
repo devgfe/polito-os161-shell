@@ -130,8 +130,8 @@ main(void)
 	expect_exec("ENOENT: missing program", "/testbin/execvtest-no-such-program", valid_args, ENOENT);
 	expect_exec("EISDIR: program is a directory", "/testbin", valid_args, EISDIR);
 	expect_exec("ENOEXEC: non-ELF program", "/sys161.conf", valid_args, ENOEXEC);
-	/* ENOMEM case depends on configured RAM (current sys161.conf uses 2M). */
-	expect_exec("ENOMEM: insufficient RAM for huge program", "/testbin/huge", valid_args, ENOMEM);
+	/* ENOMEM case depends on configured RAM (current sys161.conf uses 16M). */
+	expect_exec("ENOMEM: insufficient RAM for reallyhuge program", "/testbin/reallyhuge", valid_args, ENOMEM);
 	expect_exec("E2BIG: argument exceeds ARG_MAX", ARGTEST_PATH, oversized_args, E2BIG);
 	expect_exec("EFAULT: NULL program pointer", NULL, valid_args, EFAULT);
 	expect_exec("EFAULT: invalid program pointer", (const char *)BAD_USER_POINTER, valid_args, EFAULT);

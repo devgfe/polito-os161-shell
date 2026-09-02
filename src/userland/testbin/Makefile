@@ -9,7 +9,7 @@ SUBDIRS=add argtest badcall bigexec bigfile bigfork bigseek bloat chdirtest clos
 	crash ctest dirconc dirseek dirtest dup2test execvtest f_test factorial farm faulter \
 	filetest forkbomb forktest frack getcwdtest getpidtest hash hog huge lseektest \
 	malloctest matmult multiexec opentest palin parallelvm poisondisk psort readtest \
-	randcall redirect rmdirtest rmtest \
+	randcall redirect rmdirtest rmtest reallyhuge \
 	sbrktest schedpong sort sparsefile stdiodtest tail tictac triplehuge \
 	triplemat triplesort usemtest waitpidtest writetest zero zombietest
 
