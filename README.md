@@ -1,4 +1,4 @@
-# polito-os161-shell
+# [polito-os161-shell](https://github.com/devgfe/polito-os161-shell)
 
 ## Project C2 Design Document
 
