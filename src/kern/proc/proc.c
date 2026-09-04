@@ -82,19 +82,38 @@ struct proc *kproc;
  * Create a proc structure.
  */
 static
+#if OPT_SHELL
+int
+proc_create(const char *name, struct proc **ret)
+#else
 struct proc *
 proc_create(const char *name)
+#endif
 {
 	struct proc *proc;
+#if OPT_SHELL
+	int result;
+
+	KASSERT(ret != NULL);
+	*ret = NULL;
+#endif
 
 	proc = kmalloc(sizeof(*proc));
 	if (proc == NULL) {
+#if OPT_SHELL
+		return ENOMEM;
+#else
 		return NULL;
+#endif
 	}
 	proc->p_name = kstrdup(name);
 	if (proc->p_name == NULL) {
 		kfree(proc);
+#if OPT_SHELL
+		return ENOMEM;
+#else
 		return NULL;
+#endif
 	}
 
 	proc->p_numthreads = 0;
@@ -123,31 +142,36 @@ proc_create(const char *name)
 
 	/* PID assignment */
 	if (kproc != NULL) {
-		int err = proc_assign_pid(proc);
-		if (err) {
+		result = proc_assign_pid(proc);
+		if (result) {
 			proc_destroy(proc);
-			return NULL;
+			return result;
 		}
 	}
 	else {
-		proc_init_kernel_pid(proc); // kernel process initialization
+		proc_init_kernel_pid(proc);
 	}
 
 	/* Wait/exit synchronization */
 	proc->p_waitlock = lock_create("waitlock");
 	if (proc->p_waitlock == NULL) {
 		proc_destroy(proc);
-		return NULL;
+		return ENOMEM;
 	}
 
 	proc->p_waitcv = cv_create("waitcv");
 	if (proc->p_waitcv == NULL) {
 		proc_destroy(proc);
-		return NULL;
+		return ENOMEM;
 	}
 #endif
 
+#if OPT_SHELL
+	*ret = proc;
+	return 0;
+#else
 	return proc;
+#endif
 }
 
 /*
@@ -274,10 +298,19 @@ proc_destroy(struct proc *proc)
 void
 proc_bootstrap(void)
 {
+#if OPT_SHELL
+	int result;
+
+	result = proc_create("[kernel]", &kproc);
+	if (result) {
+		panic("proc_create for kproc failed: %s\n", strerror(result));
+	}
+#else
 	kproc = proc_create("[kernel]");
 	if (kproc == NULL) {
 		panic("proc_create for kproc failed\n");
 	}
+#endif
 
 #if OPT_SHELL
 	/* PID allocator lock initialization. */
@@ -296,22 +329,36 @@ proc_bootstrap(void)
  * It will have no address space and will inherit the current
  * process's (that is, the kernel menu's) current directory.
  */
+#if OPT_SHELL
+int
+proc_create_runprogram(const char *name, struct proc **ret)
+#else
 struct proc *
 proc_create_runprogram(const char *name)
+#endif
 {
 	struct proc *newproc;
+#if OPT_SHELL
+	int result;
 
+	KASSERT(ret != NULL);
+	*ret = NULL;
+
+	result = proc_create(name, &newproc);
+	if (result) {
+		return result;
+	}
+#else
 	newproc = proc_create(name);
 	if (newproc == NULL) {
 		return NULL;
 	}
+#endif
 
 	/* VM fields */
-
 	newproc->p_addrspace = NULL;
 
 	/* VFS fields */
-
 	/*
 	 * Lock the current process to copy its current directory.
 	 * (We don't need to lock the new process, though, as we have
@@ -329,23 +376,18 @@ proc_create_runprogram(const char *name)
 	/* Set parent from the calling process. */
 	newproc->p_parent = curproc->p_pid;
 
-	/* FD table management */
-	/* Create the fd table for the new process and initialize the standard descriptors */
-	newproc->p_fdtable = fdtable_create_standard();
-	if (newproc->p_fdtable == NULL)
-	{
-		proc_destroy(newproc);
-		return NULL;
-	}
-
 #if OPT_PROCDEBUG
 	kprintf("Process %d created child process %d\n",
 	        (int)newproc->p_parent, (int)newproc->p_pid);
 #endif
-
 #endif
 
+#if OPT_SHELL
+	*ret = newproc;
+	return 0;
+#else
 	return newproc;
+#endif
 }
 
 /*
@@ -524,26 +566,37 @@ static int find_valid_pid(void)
  * Wait for the given process to exit.
  *
  * Blocks the calling thread on the process's wait condition variable
- * until the process sets p_exited (via sys__exit). Returns the
- * process's exit code.
+ * until the process sets p_exited (via sys__exit). p_waitlock prevents
+ * lost wakeups around the condition variable, while p_lock protects
+ * accesses to p_exited and p_exitcode.
  *
  * Note: the caller is responsible for destroying the process
  * structure afterwards with proc_destroy().
  */
 int proc_wait(struct proc *proc)
 {
+	bool exited;
 	int exitcode;
 
 	KASSERT(proc != NULL);
 
 	lock_acquire(proc->p_waitlock);
 
-	while (!proc->p_exited)
-	{
+	while (true) {
+		spinlock_acquire(&proc->p_lock);
+		exited = proc->p_exited;
+		if (exited) {
+			exitcode = proc->p_exitcode;
+		}
+		spinlock_release(&proc->p_lock);
+
+		if (exited) {
+			break;
+		}
+
+		/* cv_wait releases p_waitlock atomically while sleeping. */
 		cv_wait(proc->p_waitcv, proc->p_waitlock);
 	}
-
-	exitcode = proc->p_exitcode;
 
 	lock_release(proc->p_waitlock);
 
@@ -553,13 +606,17 @@ int proc_wait(struct proc *proc)
 /*
  * Store the process exit code before terminating the current thread.
  *
- * The wait lock ensures that the exit code is written safely and can be read consistently by a waiting parent process.
+ * p_waitlock ensures that the exit code is written safely and can 
+ * be read consistently by a waiting parent process.
  */
 
 void proc_exit(int exitcode)
 {
 	struct proc *p = curproc;
 	bool orphan;
+#if OPT_PROCDEBUG
+	pid_t pid;
+#endif
 
 	proc_remthread(curthread);
 
@@ -573,13 +630,17 @@ void proc_exit(int exitcode)
 	p->p_exitcode = exitcode;
 	p->p_exited = true;
 	orphan = (p->p_parent == NO_PARENT);
+#if OPT_PROCDEBUG
+	/* Save debug data before waking a parent that may destroy p. */
+	pid = p->p_pid;
+#endif
 	spinlock_release(&p->p_lock);
 	cv_signal(p->p_waitcv, p->p_waitlock);
 	lock_release(p->p_waitlock);
 
 #if OPT_PROCDEBUG
 	kprintf("Process %d terminated with status coded=%d, pure=%d\n",
-	        (int)p->p_pid, exitcode, WEXITSTATUS(exitcode));
+	        (int)pid, exitcode, WEXITSTATUS(exitcode));
 #endif
 
 	if (orphan) {

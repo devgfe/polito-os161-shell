@@ -109,7 +109,11 @@ extern struct proc *kproc;
 void proc_bootstrap(void);
 
 /* Create a fresh process for use by runprogram(). */
+#if OPT_SHELL
+int proc_create_runprogram(const char *name, struct proc **ret);
+#else
 struct proc *proc_create_runprogram(const char *name);
+#endif
 
 /* Destroy a process. */
 void proc_destroy(struct proc *proc);

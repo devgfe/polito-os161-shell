@@ -251,8 +251,8 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 		}
 	}
 
-	proc_destroy(child);
 	(void)proc_remove_child(curproc, pid);
+	proc_destroy(child);
 
 	*retval = pid;
 
@@ -284,12 +284,12 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 
 	*child_tf = *tf;
 
-	child = proc_create_runprogram(curproc->p_name);
-	if (child == NULL) {
+	err = proc_create_runprogram(curproc->p_name, &child);
+	if (err) {
 		kfree(child_tf);
-		return ENOMEM;
+		return err;
 	}
-	// Miglioramento possibile, da discutere: implementare la copy on write
+	
 	err = as_copy(curproc->p_addrspace, &child_as);
 	if (err) {
 		proc_destroy(child);
@@ -299,16 +299,13 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 
 	child->p_addrspace = child_as;
 
-	struct fd_table *child_fdtable;
-
-	err = fdtable_clone(curproc->p_fdtable, &child_fdtable);
+	/* Clone descriptors. */
+	err = fdtable_clone(curproc->p_fdtable, &child->p_fdtable);
 	if (err) {
 		proc_destroy(child);
 		kfree(child_tf);
 		return err;
 	}
-	fdtable_destroy(child->p_fdtable);
-	child->p_fdtable = child_fdtable;
 
 	/* Add the process to the children list */
 	err = proc_add_child(curproc, child->p_pid); 
