@@ -8,35 +8,62 @@ This document summarizes the design and implementation choices for the OS/161 Sh
 
 ### `open`
 
+`int open(const char *filename, int flags, ...);` opens (optionally creating) the file at `filename` and returns a new file descriptor referring to it, or `-1` on error.
 
+1. `sys_open` rejects any flag bits outside `O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND` with `EINVAL`, then copies the pathname in with `copyinstr`.
+2. It calls `fdtable_open` (see [The File Descriptor Table](#the-file-descriptor-table) below), which opens the vnode with `vfs_open`, allocates a system-wide `open_file` entry for it, and inserts it into the first free slot of the calling process's FD table.
 
 ### `read`
 
+`ssize_t read(int fd, void *buf, size_t buflen);` reads up to `buflen` bytes from `fd` into `buf`, returning the number of bytes actually read (`0` at end of file).
 
+1. `sys_read` allocates a kernel buffer of size `buflen`.
+2. It calls `fdtable_read`, which looks up the descriptor's `open_file`, rejects descriptors not opened for reading (`EBADF`), and performs the transfer with `VOP_READ` through a `uio` built from the current file offset, advancing the offset by the number of bytes actually transferred.
+3. It copies the bytes actually read back to the user buffer with `copyout`, but only when at least one byte was transferred — a zero-length `copyout` spuriously returns `EFAULT` on this base distribution (`copycheck` underflows when computing the end address of a zero-length region), which would otherwise make every end-of-file read fail.
 
 ### `write`
 
+`ssize_t write(int fd, const void *buf, size_t nbytes);` writes up to `nbytes` bytes from `buf` to `fd`, returning the number of bytes actually written.
 
+1. `sys_write` copies the user buffer into a kernel buffer with `copyin`.
+2. It calls `fdtable_write`, which rejects descriptors not opened for writing (`EBADF`) and performs the transfer with `VOP_WRITE` through a `uio` built from the current file offset, advancing the offset by the number of bytes actually written.
 
 ### `lseek`
 
+`off_t lseek(int fd, off_t pos, int whence);` repositions the file offset of `fd` according to `whence` (`SEEK_SET`, `SEEK_CUR`, `SEEK_END`) and returns the resulting offset.
 
+1. Because `off_t` is 64 bits, the MIPS syscall convention passes `fd` in `a0`, leaves `a1` unused for register-pair alignment, and packs `pos` across `a2`/`a3`. `whence` no longer fits in a register and is read from the user stack at `sp+16` via `copyin` in the dispatcher, which also splits the 64-bit return value across `v0`/`v1`.
+2. `fdtable_lseek` computes the new offset for each `whence` case, querying the file size with `VOP_STAT` for `SEEK_END`.
+3. It rejects the call if the descriptor isn't seekable (`VOP_ISSEEKABLE`, `ESPIPE`) or if the resulting offset would be negative (`EINVAL`).
 
 ### `close`
 
+`int close(int fd);` closes a file descriptor.
 
+1. `sys_close` forwards to `fdtable_close`, which removes the descriptor from the process's FD table.
+2. It decrements the reference count of the underlying `open_file`; the vnode is only actually closed with `vfs_close` once that count reaches zero, since the same `open_file` may still be referenced by another descriptor created with `dup2` or inherited through `fork` (see [The File Descriptor Table](#the-file-descriptor-table)).
 
 ### `dup2`
 
+`int dup2(int oldfd, int newfd);` makes `newfd` refer to the same open file as `oldfd`.
 
+1. `fdtable_dup2` increments the reference count of `oldfd`'s `open_file`.
+2. It releases whatever was previously open on `newfd` first, following the same reference-counted teardown as `fdtable_close`, then installs the shared `open_file` at `newfd`.
+3. `dup2(fd, fd)` is a no-op that simply returns `fd`.
 
 ### `chdir`
 
+`int chdir(const char *pathname);` changes the calling process's current working directory.
 
+1. Unlike the other calls, the current working directory is not tracked in the FD table: `sys_chdir` copies the pathname in with `copyinstr`.
+2. It forwards the pathname directly to `vfs_chdir`, the base-distribution function that updates `curproc->p_cwd`.
 
 ### `__getcwd`
 
+`ssize_t __getcwd(char *buf, size_t buflen);` retrieves the calling process's current working directory as a string.
 
+1. `sys___getcwd` builds a `uio` targeting the user-supplied buffer and calls `vfs_getcwd`.
+2. `vfs_getcwd` relies on `VOP_NAMEFILE`, which in this OS/161 distribution is only implemented for the root directory of a volume (on both EMUFS and SFS); calling `__getcwd` from any subdirectory therefore fails, regardless of the caller — a base-distribution limitation, not specific to this implementation.
 
 ### `getpid`
 
@@ -169,6 +196,33 @@ Diagnostic PID information is printed only when `OPT_PROCDEBUG` is enabled.
 If `runprogram` fails inside the child thread (e.g. the executable does not exist), `cmd_progthread` prints the error and calls `sys__exit(1)`, so the parent waiting in `proc_wait` always wakes up and the menu never hangs.
 
 Blocking in `proc_wait` also removes the race condition noted in the original base-system comments: the menu loop no longer returns to the prompt (and therefore does not reuse its input buffer, which backs the `args` array) while the subprogram's thread is still reading it.
+
+### The File Descriptor Table
+
+File descriptor state is split across two structures, `struct open_file` and `struct fd_table` (`src/kern/syscall/filetable.c`), so that descriptors created by `dup2` or inherited through `fork` can correctly share the same underlying file rather than each holding an independent copy.
+
+- `struct open_file` holds everything tied to a single opened file — the `vnode`, the current offset, the open flags, a reference count, and a lock protecting the offset — and lives in a fixed-size, system-wide table (`system_table`, sized at `10 * OPEN_MAX`), shared by every process.
+- `struct fd_table` is per-process: an array of `OPEN_MAX` pointers into `system_table`, plus its own lock. It is declared as an opaque type in `filetable.h`; `struct proc` only ever holds a pointer to it (`p_fdtable`), never its contents, so process-management code cannot depend on file-table internals.
+
+`fdtable_create_standard` builds the initial table for a new process, opening `con:` three times so that the first three calls to `fdtable_open` land on `STDIN_FILENO`, `STDOUT_FILENO`, and `STDERR_FILENO` in order. `dup2` (`fdtable_dup2`) and `fork` (`fdtable_clone`) do not duplicate the underlying `open_file` — they add another pointer to it and increment its reference count, so a `write` through one descriptor is immediately visible through any descriptor that shares it.
+
+#### Locking Model
+
+Three locks are involved, always acquired in the same order to avoid deadlock:
+
+| Lock | Scope | Protects |
+| --- | --- | --- |
+| `system_table_lock` | Global, one instance | Slot allocation in `system_table` and every `open_file`'s reference count |
+| `ft_lock` | One per `fd_table` | The `ft_entries` array of a single process |
+| `of_lock` | One per `open_file` | The offset, during `read`/`write`/`lseek` |
+
+`of_lock` being per-file, rather than per-process, is what lets two different descriptors of the same process be read or written concurrently; two operations on the *same* shared descriptor (after `dup2`/`fork`) are still serialized, since they contend for the same `of_lock`.
+
+#### Reference Counting
+
+An `open_file`'s reference count is not only "how many descriptors point to this file" — it also counts operations currently in progress on it. `fdtable_lookup_pinned` fetches the `open_file` for a descriptor and increments its count in the same critical section, before releasing any lock; `system_table_release` decrements it back down, freeing the `open_file` (and closing its vnode) only once the count reaches zero. `fdtable_read`, `fdtable_write`, and `fdtable_lseek` bracket their work between these two calls.
+
+This matters because a descriptor's entry alone does not stop a *different* process — one sharing the same `open_file` through `dup2`/`fork` — from closing its own copy while the first is still mid-`read`/`write`. Without the temporary increment, that close could bring the count to zero and free the `open_file` (destroying its lock) while the other side was still about to acquire it, corrupting kernel memory. Pinning the count for the duration of the operation guarantees the object outlives every operation that is actively using it, regardless of what any other process does with its own descriptor in the meantime.
 
 ## Tests
 
