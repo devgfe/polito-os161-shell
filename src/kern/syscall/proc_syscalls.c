@@ -289,7 +289,7 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 		kfree(child_tf);
 		return ENOMEM;
 	}
-	// Miglioramento possibile, da discutere: implementare la copy on write
+
 	err = as_copy(curproc->p_addrspace, &child_as);
 	if (err) {
 		proc_destroy(child);

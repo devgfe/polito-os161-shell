@@ -41,6 +41,7 @@
 
 #if OPT_SHELL
 #define NO_PARENT ((pid_t)-1)
+#define NO_PID ((pid_t)-1)
 
 struct proc_node {
     pid_t pid;

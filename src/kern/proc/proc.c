@@ -108,7 +108,7 @@ proc_create(const char *name)
 
 #if OPT_SHELL
 	/* PID management state */
-	proc->p_pid = NO_PARENT;
+	proc->p_pid = NO_PID;
 	proc->p_parent = NO_PARENT;
 	proc->p_children = NULL;
 
@@ -153,19 +153,10 @@ proc_create(const char *name)
 /*
  * Destroy a proc structure.
  *
- * Note: nothing currently calls this. Your wait/exit code will
- * probably want to do so.
  */
 void
 proc_destroy(struct proc *proc)
 {
-	/*
-	 * You probably want to destroy and null out much of the
-	 * process (particularly the address space) at exit time if
-	 * your wait/exit design calls for the process structure to
-	 * hang around beyond process exit. Some wait/exit designs
-	 * do, some don't.
-	 */
 
 	KASSERT(proc != NULL);
 	KASSERT(proc != kproc);
@@ -174,7 +165,7 @@ proc_destroy(struct proc *proc)
 	 * We don't take p_lock in here because we must have the only
 	 * reference to this structure. (Otherwise it would be
 	 * incorrect to destroy it.)
-	 */
+	*/
 
 	/* VFS fields */
 	if (proc->p_cwd) {
@@ -222,8 +213,7 @@ proc_destroy(struct proc *proc)
 		if (proc == curproc) {
 			as = proc_setas(NULL);
 			as_deactivate();
-		}
-		else {
+		} else {
 			as = proc->p_addrspace;
 			proc->p_addrspace = NULL;
 		}
@@ -257,8 +247,7 @@ proc_destroy(struct proc *proc)
 	if (proc->p_pid >= 0 && proc->p_pid <= PID_MAX) {
 		if (pid_lock != NULL) {
 			pid_release(proc->p_pid);
-		}
-		else if (proc->p_pid == 0) {
+		} else if (proc->p_pid == 0) {
 			/* Early bootstrap fallback: pid_lock not created yet. */
 			process_table[0] = NULL;
 		}
@@ -560,6 +549,16 @@ void proc_exit(int exitcode)
 {
 	struct proc *p = curproc;
 	bool orphan;
+
+	/* Deactivate now, while curproc == p, so the address space is
+	 * always properly deactivated before it's destroyed - whether
+	 * that happens below (orphan self-destroy) or later, when the
+	 * parent reaps us via waitpid(). proc_remthread() is about to
+	 * clear curproc, after which proc_destroy() can no longer tell
+	 * that p was the process running on this thread. */
+	if (p->p_addrspace != NULL) {
+		as_deactivate();
+	}
 
 	proc_remthread(curthread);
 
