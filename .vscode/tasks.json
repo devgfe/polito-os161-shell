@@ -51,15 +51,15 @@
             "group": "build"
         },
         {
-            "label": "Run Syscall Tests",
+            "label": "Run Shell Tests",
             "type": "shell",
-            "command": "cd ${env:HOME}/os161/root && python3 ../src/testscripts/syscall_tests.py",
+            "command": "cd ${env:HOME}/os161/root && rm -f testbin/closetest.tmp testbin/dup2test.tmp testbin/lseektest.tmp testbin/opentest.tmp testbin/readtest.tmp testbin/writetest.tmp && python3 ../src/testscripts/shell_tests.py",
             "problemMatcher": []
         },
         {
-            "label": "Run Stdio Test",
+            "label": "Run Extra Tests",
             "type": "shell",
-            "command": "cd ${env:HOME}/os161/root && python3 ../src/testscripts/stdio_test.py",
+            "command": "cd ${env:HOME}/os161/root && rm -f bigfile.out sparse.out redirect.in redirect.out testfile && python3 ../src/testscripts/extra_tests.py",
             "problemMatcher": []
         },
         {
