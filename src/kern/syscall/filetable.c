@@ -270,6 +270,50 @@ fdtable_close(struct fd_table *table, int fd)
 	return 0;
 }
 
+static struct open_file *
+fdtable_lookup_pinned(struct fd_table *table, int fd)
+{
+	/* Fetch the open_file for fd and take a temporary reference on it, so it
+ 	 * cannot be freed while the caller uses it. Must be paired with
+	 * system_table_release(). 
+	*/
+	struct open_file *of;
+
+	/* Global lock order when both are needed: system_table_lock -> ft_lock */
+	lock_acquire(system_table_lock);
+	lock_acquire(table->ft_lock);
+
+	of = table->ft_entries[fd];
+	if (of != NULL) {
+		of->of_refcount++;
+	}
+
+	lock_release(table->ft_lock);
+	lock_release(system_table_lock);
+
+	return of;
+}
+
+
+static void
+system_table_release(struct open_file *of)
+{
+	/* Release a reference taken by fdtable_lookup_pinned (or held by an fd
+ 	 * table). Frees the open_file when this was the last reference. 
+	 */
+	lock_acquire(system_table_lock);
+	of->of_refcount--;
+	if (of->of_refcount == 0) {
+		system_table[of->of_index] = NULL;
+		lock_release(system_table_lock);
+		vfs_close(of->of_vn);
+		lock_destroy(of->of_lock);
+		kfree(of);
+	} else {
+		lock_release(system_table_lock);
+	}
+}
+
 int
 fdtable_read(struct fd_table *table, int fd, void *kbuf, size_t size, int32_t *retval)
 {
@@ -282,14 +326,13 @@ fdtable_read(struct fd_table *table, int fd, void *kbuf, size_t size, int32_t *r
 		return EBADF;
 	}
 
-	lock_acquire(table->ft_lock);
-	of = table->ft_entries[fd];
-	lock_release(table->ft_lock);
-
+	of = fdtable_lookup_pinned(table, fd);
 	if (of == NULL) {
 		return EBADF;
 	}
+
 	if ((of->of_flags & O_ACCMODE) == O_WRONLY) {
+		system_table_release(of);
 		return EBADF;
 	}
 
@@ -299,6 +342,7 @@ fdtable_read(struct fd_table *table, int fd, void *kbuf, size_t size, int32_t *r
 	result = VOP_READ(of->of_vn, &u);
 	if (result) {
 		lock_release(of->of_lock);
+		system_table_release(of);
 		return result;
 	}
 
@@ -306,6 +350,7 @@ fdtable_read(struct fd_table *table, int fd, void *kbuf, size_t size, int32_t *r
 	of->of_offset = u.uio_offset;
 	lock_release(of->of_lock);
 
+	system_table_release(of);
 	return 0;
 }
 
@@ -321,14 +366,13 @@ fdtable_write(struct fd_table *table, int fd, const void *kbuf, size_t size, int
 		return EBADF;
 	}
 
-	lock_acquire(table->ft_lock);
-	of = table->ft_entries[fd];
-	lock_release(table->ft_lock);
-
+	of = fdtable_lookup_pinned(table, fd);
 	if (of == NULL) {
 		return EBADF;
 	}
+
 	if ((of->of_flags & O_ACCMODE) == O_RDONLY) {
+		system_table_release(of);
 		return EBADF;
 	}
 
@@ -338,6 +382,7 @@ fdtable_write(struct fd_table *table, int fd, const void *kbuf, size_t size, int
 	result = VOP_WRITE(of->of_vn, &u);
 	if (result) {
 		lock_release(of->of_lock);
+		system_table_release(of);
 		return result;
 	}
 
@@ -345,6 +390,7 @@ fdtable_write(struct fd_table *table, int fd, const void *kbuf, size_t size, int
 	of->of_offset = u.uio_offset;
 	lock_release(of->of_lock);
 
+	system_table_release(of);
 	return 0;
 }
 
