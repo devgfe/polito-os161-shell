@@ -31,7 +31,7 @@ struct fd_table {
 static struct open_file *system_table[SYSTEM_OPEN_MAX];
 static struct lock *system_table_lock;
 
-/* da chiamare una volta sola all'avvio del kernel, prima di creare processi */
+/* called only when the kernel starts, before creating processes */
 void
 filetable_bootstrap(void)
 {
