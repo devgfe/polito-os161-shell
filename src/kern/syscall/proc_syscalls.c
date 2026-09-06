@@ -203,7 +203,9 @@ void sys__exit(int exitcode)
 
 int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 {
+	struct proc *child;
 	bool nohang;
+	int result;
 
 	/*
 	 * Support blocking wait (options == 0) and WNOHANG.
@@ -215,18 +217,9 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 
 	nohang = (options & WNOHANG) != 0;
 
-	struct proc *child = proc_lookup(pid);
-
-	if (child == NULL) {
-		return ESRCH;
-	}
-	
-	spinlock_acquire(&child->p_lock);
-	pid_t parent = child->p_parent;
-	spinlock_release(&child->p_lock);
-
-	if (parent != curproc->p_pid) {
-		return ECHILD;
+	result = proc_lookup_child(curproc, pid, &child);
+	if (result) {
+		return result;
 	}
 
 	if (nohang) {
@@ -258,7 +251,7 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 
 #if OPT_PROCDEBUG
 	kprintf("Process %d collected process %d via waitpid (process parent pid=%d)\n",
-			(int)curproc->p_pid, (int)pid, (int)parent);
+			(int)curproc->p_pid, (int)pid, (int)curproc->p_pid);
 #endif
 
 	return 0;
