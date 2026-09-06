@@ -288,6 +288,15 @@ The following tests are user-space black-box integration tests that validate obs
 
 `zombietest` verifies zombie and orphan reaping semantics in three scenarios: a child that exits before the parent calls `waitpid` (zombie case), a child that exits before a parent that never waits, and a parent that exits before its child. It checks that `waitpid` still returns the correct PID and exit status for the zombie case, and that orphaned children are eventually reaped by the kernel without leaving stale process state.
 
+
+## Assignment questions
+
+### Can two different user-level processes find themselves running a system call at the same time?
+
+Yes, and the kernel is designed around that assumption rather than against it. `syscall()` (`src/kern/arch/mips/syscall/syscall.c`) takes no global lock before dispatching, so any number of processes can be inside it — even in the same `switch` case, e.g. both in `sys_write` — at once; on this project's configuration (`root/sys161.conf`, `mainboard cpus=4`) that concurrency is genuinely parallel across CPUs, not just interleaved on one.
+
+This is why shared kernel state is protected with per-object locks instead of any implicit single-threading of syscall handling: `pid_lock` guards `process_table` (see [PID Assignment and the Process Table](#pid-assignment-and-the-process-table)), and the file-descriptor path layers `system_table_lock`, `ft_lock`, and `of_lock` precisely so that concurrent syscalls from different processes only serialize on the data they actually share (see [Locking Model](#locking-model)) — two processes writing to unrelated files run fully in parallel, and only contend if they happen to share an `open_file` via `dup2`/`fork`.
+
 ## References
 
 - [OS/161 Manual](https://people.ece.ubc.ca/os161/man/)
