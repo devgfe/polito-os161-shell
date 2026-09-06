@@ -77,6 +77,10 @@ main(void)
 	close(filehandle);
 
 	errno = 0;
+	result = read(filehandle, buffer, 1);
+	expect_errno("EBADF: closed descriptor", result == -1, EBADF, errno);
+
+	errno = 0;
 	result = read(-1, buffer, 1);
 	expect_errno("EBADF: invalid descriptor", result == -1, EBADF, errno);
 
@@ -99,6 +103,10 @@ main(void)
 		errno = 0;
 		result = read(filehandle, BAD_USER_POINTER, 1);
 		expect_errno("EFAULT: invalid buffer", result == -1, EFAULT, errno);
+
+		errno = 0;
+		result = read(filehandle, NULL, 1);
+		expect_errno("EFAULT: NULL buffer", result == -1, EFAULT, errno);
 		close(filehandle);
 	}
 

@@ -17,6 +17,9 @@
 
 #include "../testreport.h"
 
+/* Exit status used by the zombie child to verify status reporting. */
+#define ZOMBIE_EXIT_STATUS 42
+
 static
 void
 spin_delay(volatile unsigned long count)
@@ -91,7 +94,7 @@ test_zombie(void)
 	}
 
 	if (child == 0) {
-		_exit(42);
+		_exit(ZOMBIE_EXIT_STATUS);
 	}
 
 	/* Busy-wait so child exits before we call waitpid. */
@@ -107,7 +110,7 @@ test_zombie(void)
 		return 1;
 	}
 
-	if (WIFEXITED(status) && WEXITSTATUS(status) == 42) {
+	if (WIFEXITED(status) && WEXITSTATUS(status) == ZOMBIE_EXIT_STATUS) {
 		return 0;
 	}
 	else {
