@@ -136,6 +136,13 @@ struct addrspace *proc_setas(struct addrspace *);
 /* Return a process structure given a process identifier. */
 struct proc* proc_lookup(pid_t pid);
 
+/*
+ * Look up a process by pid, checking atomically that it is a child of
+ * "parent". Returns 0 (with *ret set), ESRCH or ECHILD. On success the
+ * returned process cannot be destroyed by anyone but the caller.
+ */
+int proc_lookup_child(struct proc *parent, pid_t pid, struct proc **ret);
+
 /* Release the pid in the process table. */
 void pid_release(pid_t pid);
 
