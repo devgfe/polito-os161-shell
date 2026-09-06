@@ -1,5 +1,7 @@
 # Contributing
 
+> **Not a contributor?** If you just want to **download and run the project** (without modifying or pushing code), see [`INSTALL.md`](INSTALL.md).
+
 This guide walks you through setting up the development environment from scratch and explains the daily workflow for contributing to the project.
 
 The project runs inside a Docker container based on [`marcopalena/polito-os161`](https://github.com/marcopalena/polito-os161-docker), a compact image pre-configured to compile, run, and debug OS/161.
@@ -69,14 +71,9 @@ The sudo password for the container user is `os161`.
 
 ---
 
-### 5. Install Python and pexpect
+### 5. Install Python and pexpect (optional — only for the automated tests)
 
-The automated syscall tests are driven by two Python scripts
-([`src/testscripts/syscall_tests.py`](src/testscripts/syscall_tests.py) for the
-non-interactive tests and [`src/testscripts/stdio_test.py`](src/testscripts/stdio_test.py)
-for the interactive stdiodtest) that boot OS/161 and feed commands to the kernel
-menu, waiting for each prompt. They rely on the [`pexpect`](https://pexpect.readthedocs.io/)
-library, which is not installed by default in the container.
+The automated tests are driven by two Python scripts that boot OS/161, feed commands to the kernel menu, and wait for the next prompt between commands: [`src/testscripts/shell_tests.py`](src/testscripts/shell_tests.py) runs the syscall tests, while [`src/testscripts/extra_tests.py`](src/testscripts/extra_tests.py) runs additional tests that exercise the implemented syscalls. Both rely on the [`pexpect`](https://pexpect.readthedocs.io/) library, which is not installed by default in the container.
 
 Install both with:
 
@@ -162,7 +159,7 @@ git log --oneline -5
 
 ---
 
-## Daily Workflow
+## Daily Workflow (for contributors)
 
 If the container already exists, you do not need to repeat the setup — just:
 
@@ -182,3 +179,22 @@ If the container already exists, you do not need to repeat the setup — just:
    git commit -m "type: short description"
    git push
    ```
+
+---
+
+## VS Code tasks
+
+The workspace defines the following tasks (see `.vscode/tasks.json`) to configure, build, and run the kernel:
+
+| Task | What it does |
+|------|--------------|
+| **Copy Config** | Copies the base `DUMBVM` kernel config to a new config with a name you choose (`VersionName`). |
+| **Run Config** | Runs `config <VersionName>` to generate the build directory for that kernel config. |
+| **Make Depend** | Runs `bmake depend` in the `<VersionName>` compile directory to compute header dependencies. |
+| **Build and Install** | Compiles the kernel (`bmake`) and installs it (`bmake install`) into `~/os161/root`. |
+| **Full Kernel Build** | Runs the previous four in sequence: config → depend → build/install. |
+| **Build Tests** | Builds and installs the userland test programs. |
+| **Run OS161** | Boots the installed kernel in `~/os161/root` with `sys161 -w` (waits for a debugger). |
+| **Run OS161 (no debug)** | Boots the installed kernel normally with `sys161 kernel`. |
+| **Run Shell Tests** | Cleans up temp files, then runs the automated `shell_tests.py` suite. |
+| **Run Extra Tests** | Prepares test input files, then runs the automated `extra_tests.py` suite. |
