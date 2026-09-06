@@ -63,7 +63,7 @@ This document summarizes the design and implementation choices for the OS/161 Sh
 `ssize_t __getcwd(char *buf, size_t buflen);` retrieves the calling process's current working directory as a string.
 
 1. `sys___getcwd` builds a `uio` targeting the user-supplied buffer and calls `vfs_getcwd`.
-2. `vfs_getcwd` relies on `VOP_NAMEFILE`, which in this OS/161 distribution is only implemented for the root directory of a volume (on both EMUFS and SFS); calling `__getcwd` from any subdirectory therefore fails, regardless of the caller — a base-distribution limitation, not specific to this implementation.
+2. `vfs_getcwd` relies on `VOP_NAMEFILE`, which in the base OS/161 distribution is only implemented for the root directory of a volume on both EMUFS and SFS. This project's own `emufs_namefile` patch (see [EMUFS Path Tracking for `__getcwd`](#emufs-path-tracking-for-__getcwd) below) lifts that restriction for EMUFS, so `__getcwd` works from any EMUFS subdirectory; on SFS the restriction is unchanged, and calling `__getcwd` from an SFS subdirectory still fails regardless of the caller — a base-distribution limitation, not specific to this implementation.
 
 ### `getpid`
 
@@ -74,7 +74,7 @@ This document summarizes the design and implementation choices for the OS/161 Sh
 `pid_t fork(void);` creates a new process that is a copy of the calling process, duplicating its address space and file descriptor table. On success, the call returns the child's PID in the parent and `0` in the child; on failure it returns `-1` and sets `errno` in the parent, and no child is created.
 
 1. `sys_fork` copies the parent's trapframe onto the heap, since the child resumes execution through it after `thread_fork` returns to the parent (the on-stack trapframe of `sys_fork`'s caller would otherwise be gone by the time the child runs).
-2. It creates the child process with `proc_create_runprogram`, which assigns a new PID, records the parent's PID in `p_parent`, and sets up a fresh standard FD table (see [Standard File Descriptors for `runprogram` Processes](#standard-file-descriptors-for-runprogram-processes)).
+2. It creates the child process with `proc_create_runprogram`, which assigns a new PID and records the parent's PID in `p_parent`; the child's `p_fdtable` is left `NULL` at this point (see [Standard File Descriptors for `runprogram` Processes](#standard-file-descriptors-for-runprogram-processes)) and is only populated by the next step.
 3. It duplicates the parent's address space with `as_copy` and replaces the child's FD table with a clone of the parent's via `fdtable_clone`, so the child inherits copies of every open file descriptor rather than sharing the parent's table.
 4. It registers the child's PID in the parent's children list with `proc_add_child` (see [Process Tree: Parent/Child Tracking](#process-tree-parentchild-tracking)), then starts the child with `thread_fork`, passing `enter_forked_process` and the heap-allocated trapframe.
 5. `enter_forked_process` (`src/kern/arch/mips/syscall/syscall.c`) runs on the new thread: it copies the trapframe onto its own stack, frees the heap copy, sets `tf_v0 = 0` and `tf_a3 = 0` so the child observes a `0` return value with no error, advances `tf_epc` past the `syscall` instruction, and enters user mode via `mips_usermode`.
@@ -96,7 +96,7 @@ The new address space must be temporarily installed because `load_elf` loads the
 `pid_t waitpid(pid_t pid, int *status, int options);` blocks the calling process until the specified child terminates, then reaps it and reports its exit status.
 
 1. `sys_waitpid` accepts `options == 0` or `WNOHANG`; any other bit set returns `EINVAL`.
-2. It looks up the target process with `proc_lookup(pid)` (`ESRCH` if no such PID exists) and checks that its recorded parent is the calling process (`ECHILD` otherwise). This means a process can only wait on its own direct children, and a PID that has already been reaped by a previous `waitpid` call fails with `ESRCH` because `proc_lookup` no longer finds it.
+2. It looks up the target process with `proc_lookup_child(curproc, pid, &child)`, which returns `ESRCH` if no such PID exists or `ECHILD` if it exists but its recorded parent isn't the caller — checked atomically, under `pid_lock`, in the same critical section as the lookup (see [PID Assignment and the Process Table](#pid-assignment-and-the-process-table)). This means a process can only wait on its own direct children, and a PID that has already been reaped by a previous `waitpid` call fails with `ESRCH` because the PID no longer resolves to any process. Looking up the PID and checking parentage atomically (rather than as two separate steps) closes a use-after-free/TOCTOU hole: without it, the target PID could be reaped and reassigned to an unrelated process between the lookup and the parent check, and the parent check would then pass or fail against the wrong process.
 3. With `WNOHANG`, if the child has not exited yet, it returns `0` immediately without blocking.
 4. Otherwise it blocks in `proc_wait(child)` (see [Wait/Exit Synchronization](#waitexit-synchronization)) until the child calls `_exit`, then copies the exit status out to `status` (if non-NULL, via `copyout`), destroys the child's process structure with `proc_destroy`, and removes its entry from the caller's children list with `proc_remove_child`.
 
@@ -147,15 +147,15 @@ To support `getpid`, `fork`, `waitpid` and `_exit`, `struct proc` (`src/kern/inc
 | `p_waitlock` / `p_waitcv` | A lock/condition-variable pair used to block a waiting parent until the process exits (see below). |
 | `p_fdtable` | The process's file descriptor table (see [Standard File Descriptors for `runprogram` Processes](#standard-file-descriptors-for-runprogram-processes)). |
 
-`proc_create` initializes all of these fields (PID fields to `NO_PID`/`NO_PARENT`, `p_children` to `NULL`, `p_exited` to `false`), then either assigns a PID via `proc_assign_pid` or, for the very first process, sets it up as the kernel process via `proc_init_kernel_pid`. `proc_destroy` tears them down: it destroys `p_waitcv`/`p_waitlock`, destroys `p_fdtable`, and releases the PID back into the table. It does not free `p_children`, since by the time `proc_destroy` runs — either from `sys_waitpid`, or from `proc_exit` on an orphan — the children list has already been cleared by `proc_remove_all_children`.
+`proc_create` initializes all of these fields (PID fields to `NO_PID`/`NO_PARENT`, `p_children` to `NULL`, `p_exited` to `false`), then assigns a PID via `proc_assign_pid`, which is called unconditionally for every process, including the very first (the kernel process) — see [PID Assignment and the Process Table](#pid-assignment-and-the-process-table) for how it tells the two cases apart. `proc_destroy` tears them down in the opposite order it matters for safety: it releases the PID back into the table *first* (via `pid_release`), then destroys `p_waitcv`/`p_waitlock` and `p_fdtable`. It does not free `p_children`, since by the time `proc_destroy` runs — either from `sys_waitpid`, or from `proc_exit` on an orphan — the children list has already been cleared by `proc_remove_all_children`.
 
 ### PID Assignment and the Process Table
 
 PIDs are managed with a fixed-size table, `process_table[PID_MAX + 1]` (`PID_MAX == 32767`), indexed directly by PID, plus a single `pid_lock` protecting both the table and the `next_pid` allocation cursor.
 
-- `proc_assign_pid` (called from `proc_create` for every process except the very first) takes `pid_lock` and calls `find_valid_pid`, which returns `next_pid` while PIDs have never wrapped around, or, once `next_pid` exceeds `PID_MAX`, falls back to a linear scan of `process_table` for the first free slot. This keeps allocation O(1) in the common case while still reclaiming PIDs freed by long-exited processes once the space is exhausted. Returns `ENPROC` if no PID is free.
-- `proc_init_kernel_pid` special-cases the kernel process: it is always assigned PID `0` directly, bypassing the lock (which does not exist yet this early in boot).
-- `proc_lookup(pid)` and `pid_release(pid)` provide locked read/clear access to `process_table`, and are the basis for `waitpid` finding a target process and `proc_destroy` freeing its slot.
+- `proc_assign_pid` is called from `proc_create` for *every* process, including the very first (the kernel process). It and `pid_release` share a `needlock = (kproc != NULL)` flag that tells them whether `pid_lock` already exists: while `kproc` is still `NULL` (i.e. while the kernel process itself is being created, this early in boot), both functions skip locking entirely, since no other thread can be contending for the table yet; for every process created afterward, they take `pid_lock` as usual.
+- Under that lock (when held), `proc_assign_pid` calls `find_valid_pid`, which returns `next_pid` while PIDs have never wrapped around, or, once `next_pid` exceeds `PID_MAX`, falls back to a linear scan of `process_table` for the first free slot. This keeps allocation O(1) in the common case while still reclaiming PIDs freed by long-exited processes once the space is exhausted. Returns `ENPROC` if no PID is free.
+- `proc_lookup(pid)` provides locked read access to `process_table`, but is no longer called anywhere in this project's code — `waitpid` and `proc_remove_all_children` instead use `proc_lookup_child(parent, pid, &out)`, which looks up the PID *and* verifies, in the same `pid_lock` critical section, that the process's recorded `p_parent` matches `parent` before handing back the pointer (`ESRCH` if the PID doesn't resolve, `ECHILD` if it does but isn't `parent`'s child). This atomicity is what prevents a stale or PID-recycled lookup from handing back a `struct proc*` that no longer belongs to the caller — see [Process Tree: Parent/Child Tracking](#process-tree-parentchild-tracking) for how it's used there. `pid_release(pid)` provides the matching locked clear access, used by `proc_destroy` freeing a slot.
 
 Because `process_table` holds a raw pointer to the `struct proc`, a PID is only safe to reuse after `proc_destroy` has cleared its slot — this is what ties PID lifetime to process-structure lifetime, and is the reason zombie processes (exited but not yet reaped) still occupy a table slot.
 
@@ -165,7 +165,7 @@ Each process tracks its direct children in `p_children`, populated by `proc_add_
 
 The trickier part is what happens when a process terminates while it still has live children or is itself still expected by a parent — this is handled by `proc_exit` (`src/kern/proc/proc.c`), called from `sys__exit`:
 
-1. It first calls `proc_remove_all_children(p)`, which walks `p`'s children list once and, for each child still present in `process_table`, clears the child's `p_parent` back to `NO_PARENT` under the child's own `p_lock`. A child that has *already* exited (a zombie the parent never got around to waiting for) is reaped right there, with `proc_wait` plus `proc_destroy`; a child that is still running is simply orphaned — its `p_parent` is `NO_PARENT`, so it will later be reaped by its own `proc_exit` instead of by a `waitpid` call, since no process will ever be able to wait on it again.
+1. It first calls `proc_remove_all_children(p)`, which walks `p`'s children list once and, for each recorded child PID, re-validates it with the same `proc_lookup_child(p, pid, &child)` primitive `waitpid` uses (see [PID Assignment and the Process Table](#pid-assignment-and-the-process-table)) before touching it, then clears the child's `p_parent` back to `NO_PARENT` under the child's own `p_lock`. Re-validating through `proc_lookup_child` here, rather than indexing `process_table` directly, is what makes this safe even if a child PID in the list is stale: it confirms the process at that PID still exists *and* is still actually `p`'s child before the parent pointer is cleared. A child that has *already* exited (a zombie the parent never got around to waiting for) is reaped right there, with `proc_wait` plus `proc_destroy`; a child that is still running is simply orphaned — its `p_parent` is `NO_PARENT`, so it will later be reaped by its own `proc_exit` instead of by a `waitpid` call, since no process will ever be able to wait on it again.
 2. It then records the exit code and sets `p_exited`, all under `p_waitlock` together with `p_lock`, and reads whether `p` itself was already orphaned (`p_parent == NO_PARENT`) in that same critical section. Doing the exit-code write and the orphan check atomically under one lock acquisition is what guarantees that exactly one of two paths reaps `p`: either a parent already blocked in `proc_wait`/`sys_waitpid` (if `p` was not an orphan when it exited), or `proc_exit` reaping itself immediately afterwards (if it was).
 3. If `p` was an orphan, `proc_exit` calls `proc_destroy(p)` on itself right after signaling the wait condition variable, since no parent will ever call `waitpid` on it. Otherwise, `p`'s `struct proc` is left alive as a zombie — still present in `process_table`, holding its exit code — until the parent eventually calls `waitpid` and reaps it via `proc_destroy`.
 
@@ -205,7 +205,7 @@ Blocking in `proc_wait` also removes the race condition noted in the original ba
 
 ### The File Descriptor Table
 
-File descriptor state is split across two structures, `struct open_file` and `struct fd_table` (`src/kern/syscall/filetable.c`), so that descriptors created by `dup2` or inherited through `fork` can correctly share the same underlying file rather than each holding an independent copy.
+File descriptor state is split across two structures, `struct open_file` and `struct fd_table` (`src/kern/filetable/filetable.c`), so that descriptors created by `dup2` or inherited through `fork` can correctly share the same underlying file rather than each holding an independent copy.
 
 - `struct open_file` holds everything tied to a single opened file — the `vnode`, the current offset, the open flags, a reference count, and a lock protecting the offset — and lives in a fixed-size, system-wide table (`system_table`, sized at `10 * OPEN_MAX`), shared by every process.
 - `struct fd_table` is per-process: an array of `OPEN_MAX` pointers into `system_table`, plus its own lock. It is declared as an opaque type in `filetable.h`; `struct proc` only ever holds a pointer to it (`p_fdtable`), never its contents, so process-management code cannot depend on file-table internals.
@@ -214,7 +214,7 @@ File descriptor state is split across two structures, `struct open_file` and `st
 
 #### Locking Model
 
-Three locks are involved, always acquired in the same order to avoid deadlock:
+Three locks are involved:
 
 | Lock | Scope | Protects |
 | --- | --- | --- |
@@ -222,11 +222,13 @@ Three locks are involved, always acquired in the same order to avoid deadlock:
 | `ft_lock` | One per `fd_table` | The `ft_entries` array of a single process |
 | `of_lock` | One per `open_file` | The offset, during `read`/`write`/`lseek` |
 
+`system_table_lock` is always acquired before `ft_lock` when both are needed together (`fdtable_lookup_pinned`, `fdtable_dup2`, `fdtable_clone`), which avoids deadlock between them. `of_lock` is never held nested with either of the other two: every caller releases `ft_lock`/`system_table_lock` before acquiring `of_lock`, so `of_lock` is always taken on its own.
+
 `of_lock` being per-file, rather than per-process, is what lets two different descriptors of the same process be read or written concurrently; two operations on the *same* shared descriptor (after `dup2`/`fork`) are still serialized, since they contend for the same `of_lock`.
 
 #### Reference Counting
 
-An `open_file`'s reference count is not only "how many descriptors point to this file" — it also counts operations currently in progress on it. `fdtable_lookup_pinned` fetches the `open_file` for a descriptor and increments its count in the same critical section, before releasing any lock; `system_table_release` decrements it back down, freeing the `open_file` (and closing its vnode) only once the count reaches zero. `fdtable_read`, `fdtable_write`, and `fdtable_lseek` bracket their work between these two calls.
+An `open_file`'s reference count is not only "how many descriptors point to this file" — it also counts operations currently in progress on it. `fdtable_lookup_pinned` fetches the `open_file` for a descriptor and increments its count in the same critical section, before releasing any lock; `system_table_release` decrements it back down, freeing the `open_file` (and closing its vnode) only once the count reaches zero. `fdtable_read` and `fdtable_write` bracket their work between these two calls. `fdtable_lseek` does not: it fetches the `open_file*` under `ft_lock` (released immediately after) and then operates under `of_lock` alone, without pinning the reference count for the duration.
 
 This matters because a descriptor's entry alone does not stop a *different* process — one sharing the same `open_file` through `dup2`/`fork` — from closing its own copy while the first is still mid-`read`/`write`. Without the temporary increment, that close could bring the count to zero and free the `open_file` (destroying its lock) while the other side was still about to acquire it, corrupting kernel memory. Pinning the count for the duration of the operation guarantees the object outlives every operation that is actively using it, regardless of what any other process does with its own descriptor in the meantime.
 
