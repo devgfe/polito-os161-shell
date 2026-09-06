@@ -26,7 +26,7 @@ TESTS = [
 
 	# --- file I/O: open/read/write/close/lseek ---
 	"p /testbin/bigfile /bigfile.out 1024",	  # create & write a file
-	"p /testbin/sparsefile /sparse.out 4096", # lseek past EOF + write
+	"p /testbin/sparsefile /sparsefile.out 4096", # lseek past EOF + write
 	"p /testbin/hash /bigfile.out",		      # read a file byte by byte
 	"p /testbin/tail /bigfile.out 512",	      # lseek + read + write
 
@@ -35,9 +35,13 @@ TESTS = [
 
 	# --- badcall: invalid arguments for implemented syscalls ---
 	# Run only the groups that map to syscalls we have:
-	#   a=execv b=waitpid c=open d=read e=write f=close g=reboot
+	#   a=execv b=waitpid c=open d=read e=write f=close
 	#   j=lseek s=chdir w=dup2 z=__getcwd
-	"p /testbin/badcall a b c d e f g j s w z",
+	"p /testbin/badcall a b c d e f j s w z",
+
+	# --- fault handling: run all crash tests in forked children ---
+	# Each fault must kill the child with the right signal, never panic the kernel.
+	"p /testbin/crash *"
 ]
 
 

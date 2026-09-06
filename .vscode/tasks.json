@@ -59,7 +59,7 @@
         {
             "label": "Run Extra Tests",
             "type": "shell",
-            "command": "cd ${env:HOME}/os161/root && rm -f bigfile.out sparse.out redirect.in redirect.out testfile && python3 ../src/testscripts/extra_tests.py",
+            "command": "cd ${env:HOME}/os161/root && printf 'The quick brown fox\\njumps over the lazy dog\\n' > catfile && rm -f bigfile.out sparsefile.out redirect.in redirect.out testfile && python3 ../src/testscripts/extra_tests.py",
             "problemMatcher": []
         },
         {
