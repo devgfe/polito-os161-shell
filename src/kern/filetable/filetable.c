@@ -89,7 +89,7 @@ system_table_alloc(struct vnode *vn, int flags)
 struct fd_table *
 fdtable_create_standard(void)
 {
-	/* Creation of the table of a process with stdin, stdout and stderr linked to che console.
+	/* Creation of the table of a process with stdin, stdout and stderr linked to the console.
 	 * The 'open' function finds the first possible empty slot increasing fs
 	*/
 	struct fd_table *ft;
@@ -136,7 +136,7 @@ fail:
 void
 fdtable_destroy(struct fd_table *table)
 {
-	/* Destroies the table of a process.
+	/* Destroys the table of a process.
 	 * It is based on the counter of references: when the reference to a process is zero,
 	 * the table is deleted.
 	*/
@@ -157,7 +157,7 @@ fdtable_destroy(struct fd_table *table)
 		lock_acquire(system_table_lock);
 		of->of_refcount--;
 		if (of->of_refcount == 0) {
-			/* this is the last one reference -> everithing id destroied */
+			/* this is the last one reference -> everything id destroyed */
 			system_table[of->of_index] = NULL;
 			lock_release(system_table_lock);
 			vfs_close(of->of_vn);
@@ -333,10 +333,10 @@ fdtable_read(struct fd_table *table, int fd, void *kbuf, size_t size, int32_t *r
 
 	if ((of->of_flags & O_ACCMODE) == O_WRONLY) {
 		system_table_release(of);
-		return EBADF;
+		return EBADF;	// can't read a file opened only for writing
 	}
 
-	lock_acquire(of->of_lock);
+	lock_acquire(of->of_lock);	// protects the offset
 	uio_kinit(&iov, &u, kbuf, size, of->of_offset, UIO_READ);
 
 	result = VOP_READ(of->of_vn, &u);
@@ -373,10 +373,10 @@ fdtable_write(struct fd_table *table, int fd, const void *kbuf, size_t size, int
 
 	if ((of->of_flags & O_ACCMODE) == O_RDONLY) {
 		system_table_release(of);
-		return EBADF;
+		return EBADF;	// can't write a file opened only for reading
 	}
 
-	lock_acquire(of->of_lock);
+	lock_acquire(of->of_lock);	// protects the offset
 	uio_kinit(&iov, &u, (void *)kbuf, size, of->of_offset, UIO_WRITE);
 
 	result = VOP_WRITE(of->of_vn, &u);
@@ -406,19 +406,17 @@ fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval
 		return EBADF;
 	}
 
-	lock_acquire(table->ft_lock);
-	of = table->ft_entries[fd];
-	lock_release(table->ft_lock);
-
+	of = fdtable_lookup_pinned(table, fd);
 	if (of == NULL) {
 		return EBADF;
 	}
 
 	if (!VOP_ISSEEKABLE(of->of_vn)) {
-		return ESPIPE;
+		system_table_release(of);
+		return ESPIPE;	// for example 'null': no file position
 	}
 
-	lock_acquire(of->of_lock);
+	lock_acquire(of->of_lock);	// protects the offset while it is read and updated
 
 	switch (code) {
 	    case SEEK_SET:
@@ -431,17 +429,20 @@ fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval
 		result = VOP_STAT(of->of_vn, &statbuf);
 		if (result) {
 			lock_release(of->of_lock);
+			system_table_release(of);
 			return result;
 		}
 		new_offset = statbuf.st_size + pos;
 		break;
 	    default:
 		lock_release(of->of_lock);
+		system_table_release(of);
 		return EINVAL;
 	}
 
 	if (new_offset < 0) {
 		lock_release(of->of_lock);
+		system_table_release(of);
 		return EINVAL;
 	}
 
@@ -449,6 +450,7 @@ fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval
 	*retval = new_offset;
 
 	lock_release(of->of_lock);
+	system_table_release(of);
 	return 0;
 }
 
