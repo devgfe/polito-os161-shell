@@ -1,4 +1,4 @@
-# polito-os161-shell
+# [polito-os161-shell](https://github.com/devgfe/polito-os161-shell)
 
 ## Project C2 Design Document
 
@@ -113,6 +113,12 @@ Because reaping happens inside `sys_waitpid` itself, a child that has exited but
 
 ## Other Modifications
 
+### EMUFS Path Tracking for `__getcwd`
+
+To support `sys___getcwd` on `emufs`, the project adds `ev_path` to `struct emufs_vnode` in `src/kern/include/emufs.h`. `ev_path` stores the vnode path relative to the filesystem root (`""` for root, `"/..."` for non-root nodes).
+
+In `src/kern/dev/lamebus/emu.c`, this path is propagated when creating/loading child vnodes (`parent ev_path + "/" + name`) and returned by `emufs_namefile`. This allows `vfs_getcwd` to compose the current working directory as `<volume name or device name>:` + vnode path, making `__getcwd` work correctly on `emufs`. The allocated `ev_path` is released during vnode reclaim.
+
 ### Standard File Descriptors for `runprogram` Processes
 
 Each newly started user process is initialized with the following standard descriptors connected to the console device `con:`:
@@ -123,9 +129,9 @@ Each newly started user process is initialized with the following standard descr
 | `1` | standard output (stdout) | `STDOUT_FILENO` |
 | `2` | standard error (stderr) | `STDERR_FILENO` |
 
-The current branch adds `p_fdtable` to `struct proc`. `proc_create` initializes it to `NULL`; `proc_create_runprogram` calls `fdtable_create_standard()` after creating the process; and `proc_destroy` calls `fdtable_destroy()` before releasing the process. If standard-table creation fails, `proc_create_runprogram` destroys the partially created process and reports failure.
+The current branch adds `p_fdtable` to `struct proc`. `proc_create` initializes it to `NULL`; `common_prog` calls `fdtable_create_standard()` after creating the process; and `proc_destroy` calls `fdtable_destroy()` before releasing the process. If standard-table creation fails, `common_prog` destroys the partially created process and reports failure.
 
-The standard FD table is initialized in `proc_create_runprogram` because it is part of the process-specific state created with each process.
+The standard FD table is initialized in `common_prog` because it is part of the process-specific state required by a program started from the kernel menu. Instead, `sys_fork` initializes the child's FD table with `fdtable_clone()`, so the child inherits the parent's descriptors.
 
 ### `struct proc` Additions
 
@@ -226,7 +232,7 @@ This matters because a descriptor's entry alone does not stop a *different* proc
 
 ## Tests
 
-The following tests validate the implemented behaviour and relevant error paths.
+The following tests are user-space black-box integration tests that validate observable syscall behavior and error paths.
 
 ### `execvtest`
 

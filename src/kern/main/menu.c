@@ -51,6 +51,7 @@
 #if OPT_SHELL
 #include <kern/wait.h>
 #include <current.h>
+#include <filetable.h>
 #endif
 
 /*
@@ -154,10 +155,24 @@ common_prog(int nargs, char **args)
 	int result;
 
 	/* Create a process for the new program to run in. */
+#if OPT_SHELL
+	result = proc_create_runprogram(args[0] /* name */, &proc);
+	if (result) {
+		return result;
+	}
+
+	/* Initialize standard descriptors. */
+	proc->p_fdtable = fdtable_create_standard();
+	if (proc->p_fdtable == NULL) {
+		proc_destroy(proc);
+		return ENOMEM;
+	}
+#else
 	proc = proc_create_runprogram(args[0] /* name */);
 	if (proc == NULL) {
 		return ENOMEM;
 	}
+#endif
 
 	result = thread_fork(args[0] /* thread name */,
 			proc /* new process */,
