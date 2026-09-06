@@ -406,15 +406,13 @@ fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval
 		return EBADF;
 	}
 
-	lock_acquire(table->ft_lock);
-	of = table->ft_entries[fd];
-	lock_release(table->ft_lock);
-
+	of = fdtable_lookup_pinned(table, fd);
 	if (of == NULL) {
 		return EBADF;
 	}
 
 	if (!VOP_ISSEEKABLE(of->of_vn)) {
+		system_table_release(of);
 		return ESPIPE;
 	}
 
@@ -431,17 +429,20 @@ fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval
 		result = VOP_STAT(of->of_vn, &statbuf);
 		if (result) {
 			lock_release(of->of_lock);
+			system_table_release(of);
 			return result;
 		}
 		new_offset = statbuf.st_size + pos;
 		break;
 	    default:
 		lock_release(of->of_lock);
+		system_table_release(of);
 		return EINVAL;
 	}
 
 	if (new_offset < 0) {
 		lock_release(of->of_lock);
+		system_table_release(of);
 		return EINVAL;
 	}
 
@@ -449,6 +450,7 @@ fdtable_lseek(struct fd_table *table, int fd, off_t pos, int code, off_t *retval
 	*retval = new_offset;
 
 	lock_release(of->of_lock);
+	system_table_release(of);
 	return 0;
 }
 
