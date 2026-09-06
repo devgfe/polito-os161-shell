@@ -110,7 +110,11 @@ extern struct proc *kproc;
 void proc_bootstrap(void);
 
 /* Create a fresh process for use by runprogram(). */
+#if OPT_SHELL
+int proc_create_runprogram(const char *name, struct proc **ret);
+#else
 struct proc *proc_create_runprogram(const char *name);
+#endif
 
 /* Destroy a process. */
 void proc_destroy(struct proc *proc);
@@ -131,6 +135,13 @@ struct addrspace *proc_setas(struct addrspace *);
 /* PID management */
 /* Return a process structure given a process identifier. */
 struct proc* proc_lookup(pid_t pid);
+
+/*
+ * Look up a process by pid, checking atomically that it is a child of
+ * "parent". Returns 0 (with *ret set), ESRCH or ECHILD. On success the
+ * returned process cannot be destroyed by anyone but the caller.
+ */
+int proc_lookup_child(struct proc *parent, pid_t pid, struct proc **ret);
 
 /* Release the pid in the process table. */
 void pid_release(pid_t pid);

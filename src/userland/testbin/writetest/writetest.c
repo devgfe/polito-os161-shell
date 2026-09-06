@@ -75,6 +75,10 @@ main(void)
 		if (close(filehandle) < 0) {
 			fail_errno("close for write test", 0, errno);
 		}
+
+		errno = 0;
+		result = write(filehandle, contents, 1);
+		expect_errno("EBADF: closed descriptor", result == -1, EBADF, errno);
 	}
 
 	errno = 0;
@@ -100,6 +104,10 @@ main(void)
 		errno = 0;
 		result = write(filehandle, BAD_USER_POINTER, 1);
 		expect_errno("EFAULT: invalid buffer", result == -1, EFAULT, errno);
+
+		errno = 0;
+		result = write(filehandle, NULL, 1);
+		expect_errno("EFAULT: NULL buffer", result == -1, EFAULT, errno);
 		close(filehandle);
 	}
 

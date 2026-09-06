@@ -1,14 +1,13 @@
 # Contributors
 
 ## Luca Ferrone
-- Extended the process structure to support PID, parent PID, exit status, and synchronization primitives
+- Process structure with PID, parent PID, exit status, and wait/exit synchronization
 - PID allocator: allocation, lookup, and reclamation
 - `getpid`, `fork`, `waitpid`, `_exit`
 - `kill_curthread` and `enter_forked_process`
 
 ## Matteo Francesco Castigliego
-- Per-process open-file table (maps file descriptors to open-file description entries)
-- System-wide open-file table (vnode, offset, flags, reference count, lock)
+- Open-file table and file descriptor management
 - `open`, `read`, `write`, `lseek`, `close`, `dup2`, `chdir`, `getcwd`
 
 ## Gabriele Ferrero
@@ -17,3 +16,4 @@
 - Syscall dispatcher (`syscall.c`)
 - Kernel menu: passing command-line arguments to started programs and waiting for their termination
 - Individual syscall testing and end-to-end integration testing via `bin/sh`
+- EMUFS path tracking and `emufs_namefile` support

@@ -203,7 +203,9 @@ void sys__exit(int exitcode)
 
 int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 {
+	struct proc *child;
 	bool nohang;
+	int result;
 
 	/*
 	 * Support blocking wait (options == 0) and WNOHANG.
@@ -215,18 +217,9 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 
 	nohang = (options & WNOHANG) != 0;
 
-	struct proc *child = proc_lookup(pid);
-
-	if (child == NULL) {
-		return ESRCH;
-	}
-	
-	spinlock_acquire(&child->p_lock);
-	pid_t parent = child->p_parent;
-	spinlock_release(&child->p_lock);
-
-	if (parent != curproc->p_pid) {
-		return ECHILD;
+	result = proc_lookup_child(curproc, pid, &child);
+	if (result) {
+		return result;
 	}
 
 	if (nohang) {
@@ -251,14 +244,14 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval)
 		}
 	}
 
-	proc_destroy(child);
 	(void)proc_remove_child(curproc, pid);
+	proc_destroy(child);
 
 	*retval = pid;
 
 #if OPT_PROCDEBUG
 	kprintf("Process %d collected process %d via waitpid (process parent pid=%d)\n",
-			(int)curproc->p_pid, (int)pid, (int)parent);
+			(int)curproc->p_pid, (int)pid, (int)curproc->p_pid);
 #endif
 
 	return 0;
@@ -284,12 +277,12 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 
 	*child_tf = *tf;
 
-	child = proc_create_runprogram(curproc->p_name);
-	if (child == NULL) {
+	err = proc_create_runprogram(curproc->p_name, &child);
+	if (err) {
 		kfree(child_tf);
-		return ENOMEM;
+		return err;
 	}
-
+	
 	err = as_copy(curproc->p_addrspace, &child_as);
 	if (err) {
 		proc_destroy(child);
@@ -299,16 +292,13 @@ int sys_fork(struct trapframe *tf, pid_t *retval){
 
 	child->p_addrspace = child_as;
 
-	struct fd_table *child_fdtable;
-
-	err = fdtable_clone(curproc->p_fdtable, &child_fdtable);
+	/* Clone descriptors. */
+	err = fdtable_clone(curproc->p_fdtable, &child->p_fdtable);
 	if (err) {
 		proc_destroy(child);
 		kfree(child_tf);
 		return err;
 	}
-	fdtable_destroy(child->p_fdtable);
-	child->p_fdtable = child_fdtable;
 
 	/* Add the process to the children list */
 	err = proc_add_child(curproc, child->p_pid); 

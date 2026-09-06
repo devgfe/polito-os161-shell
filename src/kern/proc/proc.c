@@ -59,9 +59,6 @@
 
 #define PID_MAX 32767
 
-/* Assign a unique process identifier (PID) to the kernel process. */
-static void proc_init_kernel_pid(struct proc *proc);
-
 /* Assign a unique process identifier (PID) to the given process. */
 static int proc_assign_pid(struct proc *proc);
 
@@ -70,7 +67,7 @@ static int find_valid_pid(void);
 
 static struct proc *process_table[PID_MAX + 1];
 static struct lock *pid_lock; // lock for pid assignment
-static pid_t next_pid;
+static pid_t next_pid = 0;
 #endif
 
 /*
@@ -82,19 +79,38 @@ struct proc *kproc;
  * Create a proc structure.
  */
 static
+#if OPT_SHELL
+int
+proc_create(const char *name, struct proc **ret)
+#else
 struct proc *
 proc_create(const char *name)
+#endif
 {
 	struct proc *proc;
+#if OPT_SHELL
+	int result;
+
+	KASSERT(ret != NULL);
+	*ret = NULL;
+#endif
 
 	proc = kmalloc(sizeof(*proc));
 	if (proc == NULL) {
+#if OPT_SHELL
+		return ENOMEM;
+#else
 		return NULL;
+#endif
 	}
 	proc->p_name = kstrdup(name);
 	if (proc->p_name == NULL) {
 		kfree(proc);
+#if OPT_SHELL
+		return ENOMEM;
+#else
 		return NULL;
+#endif
 	}
 
 	proc->p_numthreads = 0;
@@ -121,33 +137,33 @@ proc_create(const char *name)
 	/* FD table state */
 	proc->p_fdtable = NULL;
 
-	/* PID assignment */
-	if (kproc != NULL) {
-		int err = proc_assign_pid(proc);
-		if (err) {
-			proc_destroy(proc);
-			return NULL;
-		}
-	}
-	else {
-		proc_init_kernel_pid(proc); // kernel process initialization
+	/* PID assignment. */
+	result = proc_assign_pid(proc);
+	if (result) {
+		proc_destroy(proc);
+		return result;
 	}
 
 	/* Wait/exit synchronization */
 	proc->p_waitlock = lock_create("waitlock");
 	if (proc->p_waitlock == NULL) {
 		proc_destroy(proc);
-		return NULL;
+		return ENOMEM;
 	}
 
 	proc->p_waitcv = cv_create("waitcv");
 	if (proc->p_waitcv == NULL) {
 		proc_destroy(proc);
-		return NULL;
+		return ENOMEM;
 	}
 #endif
 
+#if OPT_SHELL
+	*ret = proc;
+	return 0;
+#else
 	return proc;
+#endif
 }
 
 /*
@@ -165,7 +181,12 @@ proc_destroy(struct proc *proc)
 	 * We don't take p_lock in here because we must have the only
 	 * reference to this structure. (Otherwise it would be
 	 * incorrect to destroy it.)
-	*/
+	 */
+
+#if OPT_SHELL
+	/* PID release. */
+	pid_release(proc->p_pid);
+#endif
 
 	/* VFS fields */
 	if (proc->p_cwd) {
@@ -213,7 +234,8 @@ proc_destroy(struct proc *proc)
 		if (proc == curproc) {
 			as = proc_setas(NULL);
 			as_deactivate();
-		} else {
+		}
+		else {
 			as = proc->p_addrspace;
 			proc->p_addrspace = NULL;
 		}
@@ -242,16 +264,6 @@ proc_destroy(struct proc *proc)
 		fdtable_destroy(proc->p_fdtable);
 		proc->p_fdtable = NULL;
 	}
-
-	/* PID release */
-	if (proc->p_pid >= 0 && proc->p_pid <= PID_MAX) {
-		if (pid_lock != NULL) {
-			pid_release(proc->p_pid);
-		} else if (proc->p_pid == 0) {
-			/* Early bootstrap fallback: pid_lock not created yet. */
-			process_table[0] = NULL;
-		}
-	}
 #endif
 
 	kfree(proc);
@@ -263,20 +275,25 @@ proc_destroy(struct proc *proc)
 void
 proc_bootstrap(void)
 {
-	kproc = proc_create("[kernel]");
-	if (kproc == NULL) {
-		panic("proc_create for kproc failed\n");
-	}
-
 #if OPT_SHELL
-	/* PID allocator lock initialization. */
+	int result;
+
 	pid_lock = lock_create("pid_lock");
 	if (pid_lock == NULL)
 	{
 		panic("lock_create for pid_lock failed\n");
 	}
-#endif
 
+	result = proc_create("[kernel]", &kproc);
+	if (result) {
+		panic("proc_create for kproc failed: %s\n", strerror(result));
+	}
+#else
+	kproc = proc_create("[kernel]");
+	if (kproc == NULL) {
+		panic("proc_create for kproc failed\n");
+	}
+#endif
 }
 
 /*
@@ -285,22 +302,36 @@ proc_bootstrap(void)
  * It will have no address space and will inherit the current
  * process's (that is, the kernel menu's) current directory.
  */
+#if OPT_SHELL
+int
+proc_create_runprogram(const char *name, struct proc **ret)
+#else
 struct proc *
 proc_create_runprogram(const char *name)
+#endif
 {
 	struct proc *newproc;
+#if OPT_SHELL
+	int result;
 
+	KASSERT(ret != NULL);
+	*ret = NULL;
+
+	result = proc_create(name, &newproc);
+	if (result) {
+		return result;
+	}
+#else
 	newproc = proc_create(name);
 	if (newproc == NULL) {
 		return NULL;
 	}
+#endif
 
 	/* VM fields */
-
 	newproc->p_addrspace = NULL;
 
 	/* VFS fields */
-
 	/*
 	 * Lock the current process to copy its current directory.
 	 * (We don't need to lock the new process, though, as we have
@@ -318,23 +349,18 @@ proc_create_runprogram(const char *name)
 	/* Set parent from the calling process. */
 	newproc->p_parent = curproc->p_pid;
 
-	/* FD table management */
-	/* Create the fd table for the new process and initialize the standard descriptors */
-	newproc->p_fdtable = fdtable_create_standard();
-	if (newproc->p_fdtable == NULL)
-	{
-		proc_destroy(newproc);
-		return NULL;
-	}
-
 #if OPT_PROCDEBUG
 	kprintf("Process %d created child process %d\n",
 	        (int)newproc->p_parent, (int)newproc->p_pid);
 #endif
-
 #endif
 
+#if OPT_SHELL
+	*ret = newproc;
+	return 0;
+#else
 	return newproc;
+#endif
 }
 
 /*
@@ -439,15 +465,31 @@ proc_setas(struct addrspace *newas)
 
 /* ========================= PID management ========================= */
 
+/*
+ * Release a PID, making it available for reuse.
+ *
+ * Out-of-range values are ignored, so this can be called unconditionally
+ * on a process whose PID was never assigned.
+ */
 void pid_release(pid_t pid)
 {
+	bool needlock;
+
 	if (pid < 0 || pid > PID_MAX) {
 		return;
 	}
 
-	lock_acquire(pid_lock);
+	needlock = (kproc != NULL);
+
+	if (needlock) {
+		lock_acquire(pid_lock);
+	}
+
 	process_table[pid] = NULL;
-    lock_release(pid_lock);
+
+	if (needlock) {
+		lock_release(pid_lock);
+	}
 }
 
 struct proc *proc_lookup(pid_t pid)
@@ -465,14 +507,68 @@ struct proc *proc_lookup(pid_t pid)
     return proc;
 }
 
-static int proc_assign_pid(struct proc *proc)
+/*
+ * Look up a process by pid and check, atomically with the lookup, that it
+ * is a child of "parent".
+ */
+int proc_lookup_child(struct proc *parent, pid_t pid, struct proc **ret)
 {
+	struct proc *child;
+	pid_t childparent;
+
+	KASSERT(parent != NULL);
+	KASSERT(ret != NULL);
+
+	*ret = NULL;
+
+	if (pid < 0 || pid > PID_MAX) {
+		return ESRCH;
+	}
+
 	lock_acquire(pid_lock);
 
-	int pid = find_valid_pid();
+	child = process_table[pid];
+	if (child == NULL) {
+		lock_release(pid_lock);
+		return ESRCH;
+	}
+
+	spinlock_acquire(&child->p_lock);
+	childparent = child->p_parent;
+	spinlock_release(&child->p_lock);
+
+	if (childparent != parent->p_pid) {
+		lock_release(pid_lock);
+		return ECHILD;
+	}
+
+	*ret = child;
+
+	lock_release(pid_lock);
+
+	return 0;
+}
+
+/*
+ * Assign a PID to the given process and register it in the process table.
+ */
+static int proc_assign_pid(struct proc *proc)
+{
+	bool needlock;
+	int pid;
+
+	needlock = (kproc != NULL);
+
+	if (needlock) {
+		lock_acquire(pid_lock);
+	}
+
+	pid = find_valid_pid();
 	if (pid < 0)
 	{
-		lock_release(pid_lock);
+		if (needlock) {
+			lock_release(pid_lock);
+		}
 		return ENPROC;
 	}
 
@@ -482,15 +578,11 @@ static int proc_assign_pid(struct proc *proc)
 	if (pid == next_pid && next_pid <= PID_MAX)
 		next_pid++;
 
-	lock_release(pid_lock);
-	return 0;
-}
+	if (needlock) {
+		lock_release(pid_lock);
+	}
 
-static void proc_init_kernel_pid(struct proc *proc)
-{
-	proc->p_pid = 0;
-	process_table[0] = proc;
-	next_pid = 1;
+	return 0;
 }
 
 static int find_valid_pid(void)
@@ -513,26 +605,37 @@ static int find_valid_pid(void)
  * Wait for the given process to exit.
  *
  * Blocks the calling thread on the process's wait condition variable
- * until the process sets p_exited (via sys__exit). Returns the
- * process's exit code.
+ * until the process sets p_exited (via sys__exit). p_waitlock prevents
+ * lost wakeups around the condition variable, while p_lock protects
+ * accesses to p_exited and p_exitcode.
  *
  * Note: the caller is responsible for destroying the process
  * structure afterwards with proc_destroy().
  */
 int proc_wait(struct proc *proc)
 {
+	bool exited;
 	int exitcode;
 
 	KASSERT(proc != NULL);
 
 	lock_acquire(proc->p_waitlock);
 
-	while (!proc->p_exited)
-	{
+	while (true) {
+		spinlock_acquire(&proc->p_lock);
+		exited = proc->p_exited;
+		if (exited) {
+			exitcode = proc->p_exitcode;
+		}
+		spinlock_release(&proc->p_lock);
+
+		if (exited) {
+			break;
+		}
+
+		/* cv_wait releases p_waitlock atomically while sleeping. */
 		cv_wait(proc->p_waitcv, proc->p_waitlock);
 	}
-
-	exitcode = proc->p_exitcode;
 
 	lock_release(proc->p_waitlock);
 
@@ -542,13 +645,17 @@ int proc_wait(struct proc *proc)
 /*
  * Store the process exit code before terminating the current thread.
  *
- * The wait lock ensures that the exit code is written safely and can be read consistently by a waiting parent process.
+ * p_waitlock ensures that the exit code is written safely and can 
+ * be read consistently by a waiting parent process.
  */
 
 void proc_exit(int exitcode)
 {
 	struct proc *p = curproc;
 	bool orphan;
+#if OPT_PROCDEBUG
+	pid_t pid;
+#endif
 
 	/* Deactivate now, while curproc == p, so the address space is
 	 * always properly deactivated before it's destroyed - whether
@@ -556,7 +663,7 @@ void proc_exit(int exitcode)
 	 * parent reaps us via waitpid(). proc_remthread() is about to
 	 * clear curproc, after which proc_destroy() can no longer tell
 	 * that p was the process running on this thread. */
-	if (p->p_addrspace != NULL) {
+	if (proc_getas() != NULL) {
 		as_deactivate();
 	}
 
@@ -572,13 +679,17 @@ void proc_exit(int exitcode)
 	p->p_exitcode = exitcode;
 	p->p_exited = true;
 	orphan = (p->p_parent == NO_PARENT);
+#if OPT_PROCDEBUG
+	/* Save debug data before waking a parent that may destroy p. */
+	pid = p->p_pid;
+#endif
 	spinlock_release(&p->p_lock);
 	cv_signal(p->p_waitcv, p->p_waitlock);
 	lock_release(p->p_waitlock);
 
 #if OPT_PROCDEBUG
 	kprintf("Process %d terminated with status coded=%d, pure=%d\n",
-	        (int)p->p_pid, exitcode, WEXITSTATUS(exitcode));
+	        (int)pid, exitcode, WEXITSTATUS(exitcode));
 #endif
 
 	if (orphan) {
@@ -668,7 +779,10 @@ void proc_remove_all_children(struct proc *parent){
 	while (curr != NULL) {
 		next = curr->next;
 
-		child = proc_lookup(curr->pid);
+		/* Validate the child through proc_lookup_child(). */
+		if (proc_lookup_child(parent, curr->pid, &child)) {
+			child = NULL;
+		}
 
 		reap = false;
 

@@ -61,7 +61,6 @@ main(void)
 		result = waitpid(child, &status, 0);
 		if (result != child) {
 			fail("waitpid returns the requested child pid");
-			reap_if_possible(child);
 		}
 		else {
 			pass("waitpid returns the requested child pid");
