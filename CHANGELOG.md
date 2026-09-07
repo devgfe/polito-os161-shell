@@ -13,7 +13,6 @@ os161/
 │
 ├── (~) <a href="README.md">📄 README.md</a>
 ├── (+) <a href="ASSIGNMENT.md">📄 ASSIGNMENT.md</a>
-├── (+) <a href="CHANGELOG.md">📄 CHANGELOG.md</a>
 ├── (+) <a href="CONTRIBUTING.md">📄 CONTRIBUTING.md</a>
 ├── (+) <a href="CONTRIBUTORS.md">📄 CONTRIBUTORS.md</a>
 ├── (+) <a href="INSTALL.md">📄 INSTALL.md</a>
